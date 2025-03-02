@@ -143,12 +143,12 @@ app.use(
 );
 
 let transporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
-  port: 587,
+  host: process.env.BREVO_SMTP_SERVER,
+  port: process.env.BREVO_PORT,
   secure: false,
   auth: {
-    user: process.env.SMTP_USERNAME,
-    pass: process.env.SMTP_PASSWORD,
+    user: process.env.BREVO_SMTP_LOGIN,
+    pass: process.env.BREVO_SMTP_PASSWORD,
   },
 });
 
