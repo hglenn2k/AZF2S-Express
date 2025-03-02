@@ -7,6 +7,7 @@ COPY package*.json ./
 
 # Install dependencies
 RUN npm install
+RUN npm install dayjs
 
 # Copy the rest of the application
 COPY . .
