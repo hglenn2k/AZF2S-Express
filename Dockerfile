@@ -1,6 +1,6 @@
 FROM node:latest
 
-WORKDIR /app
+WORKDIR .
 
 # Copy package files first for better layer caching
 COPY package*.json ./
