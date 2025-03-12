@@ -194,31 +194,6 @@ app.post("/fetch-headers", async (req, res) => {
   res.json(results);
 });
 
-app.post("/sign-up", async (req, res) => {
-  const { username, password, email } = req.body;
-  const _uid = 1;
-  const apiConfig = {
-    headers: { Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}` },
-  };
-
-  try {
-    const response = await axios.post(
-      `${process.env.DOMAIN}/forum-api/api/v3/users/`,
-      { _uid, username, password, email },
-      apiConfig
-    );
-
-    if (response.headers["set-cookie"]) {
-      res.setHeader("set-cookie", response.headers["set-cookie"]);
-    }
-
-    res.json(response.data);
-  } catch (error) {
-    console.error("Error during sign-up:", error);
-    res.status(500).json({ error: error });
-  }
-});
-
 app.get("/user", validateSession, async (req, res) => {
   const userId = req.uid;
   const userKey = `user:${userId}`;
@@ -347,51 +322,6 @@ app.put("/renew-membership", validateSession, async (req, res) => {
   }
 });
 
-app.put("/new-user", async (req, res) => {
-  const userKey = `user:${req.body.uid}`;
-  const updateData = {
-    // Full name
-    fullname: req.body.fullname,
-
-    // Email address
-    email: req.body.email,
-
-    // Legal stuff
-    agreetotos: true,
-    isadult: true,
-
-    // Newsletter
-    receivenewsletter: req.body.receivenewsletter,
-
-    // Membership
-    memberstatus: "unverified",
-    recentlyverified: false,
-  };
-
-  try {
-    await client.connect();
-    const database = client.db(mongoEnv);
-    const collection = database.collection("objects");
-
-    const result = await collection.updateOne(
-      { _key: userKey },
-      { $set: updateData }
-    );
-
-    if (result.matchedCount > 0) {
-      const updatedUser = await collection.findOne({ _key: userKey });
-      res
-        .status(200)
-        .json({ message: "User updated successfully", user: updatedUser });
-    } else {
-      res.status(404).json({ message: "User not found" });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error updating user" });
-  }
-});
-
 app.get("/user-settings", validateSession, async (req, res) => {
   const userId = req.uid;
   const userKey = `user:${userId}:settings`;
@@ -459,31 +389,6 @@ app.get("/notifications", validateSession, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error retrieving notifications" });
-  }
-});
-
-app.post("/login", async (req, res) => {
-  try {
-    const response = await axios.post(
-      `${process.env.DOMAIN}/forum-api/api/v3/utilities/login`,
-      {
-        _uid: 1,
-        username: req.body.username,
-        password: req.body.password,
-      },
-      {
-        headers: {
-          "X-CSRF-Token": req.body.csrf,
-          Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
-        },
-      }
-    );
-
-    console.log(response.data); // Log the response data
-    res.send(response.data); // Send the response to the client
-  } catch (error) {
-    console.error(error); // Log any error that occurred
-    res.status(500).send("Internal Server Error"); // Send an error response to the client
   }
 });
 
@@ -768,34 +673,6 @@ app.post("/contact-list-users", async (req, res) => {
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Error finding users" });
-  }
-});
-
-app.post("/is-account-available", async (req, res) => {
-  // Check the account username and email
-  var username = req.body.username;
-  var email = req.body.email;
-
-  try {
-    await client.connect();
-    const database = client.db(mongoEnv);
-    const collection = database.collection("objects");
-
-    // Search for the user account by username with _key that starts with "user:"
-    const userByUsername = await collection.findOne({ _key: /^user:/, username: username });
-
-    // Search for the user account by email with _key that starts with "user:"
-    const userByEmail = await collection.findOne({ _key: /^user:/, email: email });
-
-    // If either the username or email is found, the account is already taken
-    if (userByUsername || userByEmail) {
-      res.status(403).json({ message: "Username or email already exists" });
-    } else {
-      res.status(200).json({ message: "Both username and email are available" });
-    }
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: "Error checking account availability" });
   }
 });
 
@@ -1454,46 +1331,6 @@ app.get("/verified-organizations", validateSession, async (req, res) => {
     console.error(error);
     res.status(500).json({ message: "Error fetching verified organizations" });
   }
-});
-
-app.post("/new-user-email", async (req, res) => {
-  const fullName = req.body.fullName;
-  const email = req.body.email;
-  const username = req.body.username;
-
-  let current = new Date();
-  let cDate =
-    current.getFullYear() +
-    "-" +
-    (current.getMonth() + 1) +
-    "-" +
-    current.getDate();
-  let cTime =
-    current.getHours() +
-    ":" +
-    current.getMinutes() +
-    ":" +
-    current.getSeconds();
-  let dateTime = cDate + " " + cTime + " UTC";
-
-  let info = await transporter.sendMail({
-    from: '"[New User]" <new-user@azfarmtoschool.org>',
-    to: "support@azfarmtoschool.org",
-    cc: "azfarmtoschoolnetwork@gmail.com",
-    subject: "New User Registered",
-    html:
-      "<html><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name: </strong></td><td>" +
-      fullName +
-      "</td></tr><tr><td valign='top'><strong>Username: </strong></td><td>" +
-      username +
-      "</td></tr><tr><td  valign='top'><strong>Email: </strong></td><td>" +
-      email +
-      "</td></tr><tr><td  valign='top'><strong>Timestamp: </strong></td><td>" +
-      dateTime +
-      " UTC</td></tr></table></body></html>",
-  });
-
-  res.send(info);
 });
 
 app.post("/new-member-request", async (req, res) => {
