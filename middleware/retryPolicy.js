@@ -78,21 +78,33 @@ const getConfig = () => {
 const getMongoURL = () => {
     try {
         const { config } = getConfig();
+        let url;
 
-        // Default Docker container MongoDB URL
-        let url = `mongodb://${config.host}:${config.port}/${config.database}`;
+        // Build URL based on connection type
+        switch(config.connectionType) {
+            case 'local':
+                // Local MongoDB URL
+                if (config.user && config.password) {
+                    url = `mongodb://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}`;
+                } else {
+                    url = `mongodb://${config.host}:${config.port}/${config.database}`;
+                }
+                break;
 
-        // Add authentication if provided
-        if (config.user && config.password) {
-            url = `mongodb://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}`;
+            case 'azure':
+                // Azure CosmosDB MongoDB API URL
+                url = `mongodb://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}${config.options}`;
+                break;
+
+            case 'atlas':
+            default:
+                // MongoDB Atlas URL (srv format)
+                url = `mongodb+srv://${config.user}:${config.password}@${config.host}/${config.database}`;
+                break;
         }
 
-        // Support for Azure Cosmos DB if needed in the future
-        if (config.useAzure === true) {
-            // This would need proper environment variables and configuration
-            // Left as a placeholder for future implementation
-            console.warn('Azure Cosmos DB support is configured but not fully implemented');
-        }
+        // Print a masked version of the URL for debugging
+        console.log('MongoDB URL constructed:', url.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@'));
 
         return url;
     } catch (error) {
