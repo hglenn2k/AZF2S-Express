@@ -1,5 +1,6 @@
 // user_routes.js
 const express = require('express');
+const { validateSession }  = require('../../middleware/validateSession');
 const router = express.Router();
 const axios = require('axios');
 const mongodb = require('../../third_party/mongodb');
@@ -20,6 +21,68 @@ const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
 
 // Apply sanitization middleware to all routes
 router.use(sanitizeRequestBody);
+
+router.get("/", validateSession, (async (req, res) => {
+    // Check if user is authenticated
+    const userId = req.uid;
+
+    if (!userId) {
+        throw new ApiError("Authentication required", 401);
+    }
+
+    const userKey = `user:${userId}`;
+
+    // Use database operation with retry
+    const getCollection = withDatabaseRetry(mongodb.getCollection);
+
+    // First verify database connection is alive
+    let collection;
+    try {
+        collection = await getCollection("objects");
+
+        // Perform a simple ping query to verify the database is working
+        const findOne = withDatabaseRetry(collection.findOne.bind(collection));
+        await findOne({ _id: "connectionTest" }, { projection: { _id: 1 }, timeout: 2000 });
+    } catch (dbError) {
+        console.error("Database connection error:", dbError);
+        throw new ApiError("Database unavailable", 503, {
+            message: "Unable to fetch user data. Please try again later."
+        });
+    }
+
+    // Now proceed with the user lookup using retry for database operation
+    try {
+        const findOne = withDatabaseRetry(collection.findOne.bind(collection));
+        const user = await findOne({ _key: userKey });
+
+        // Explicitly check to make sure we got a valid response
+        if (user === undefined) {
+            throw new Error("Invalid database response");
+        }
+
+        if (user) {
+            // Return only necessary user data (avoid exposing sensitive fields)
+            const userData = {
+                uid: userId,
+                username: user.username,
+                email: user.email,
+                fullname: user.fullname,
+                memberstatus: user.memberstatus,
+                receivenewsletter: user.receivenewsletter
+                // Add any other fields you want to expose
+            };
+
+            res.status(200).json(userData);
+        } else {
+            throw new ApiError("User not found", 404);
+        }
+    } catch (queryError) {
+        console.error("Error querying user data:", queryError);
+        throw new ApiError("Database query failed", 503, {
+            message: "Unable to fetch user data. Please try again later."
+        });
+    }
+}));
 
 // Check if account is available
 router.post("/is-account-available", accountCheckLimiter, asyncHandler(async (req, res) => {

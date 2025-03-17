@@ -10,7 +10,7 @@ const fetch = require("node-fetch");
 const dayjs = require("dayjs");
 const { ObjectId } = require("mongodb");
 const {notFoundMiddleware, errorMiddleware} = require("./middleware/errorHandling");
-
+const {validateSession, validateAdminSession } = require("./middleware/validateSession");
 const app = express();
 const MongoClient = require("mongodb").MongoClient;
 const PORT = process.env.PORT || 3001;
@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 3001;
 // Unit test middleware
 console.log('Validating critical modules before startup...');
 try {
-  require('./middleware/testMiddlewareOnStartup');
+  require('./tests/testMiddlewareOnStartup');
   console.log('Critical modules validated successfully');
 } catch (error) {
   console.error('FATAL ERROR: Module validation failed', error);
@@ -52,58 +52,7 @@ app.use(
   })
 );
 
-// Session validation middleware
-const validateSession = async (req, res, next) => {
-  if (!req.session || !req.session.passport || !req.session.passport.user) {
-    console.log(req.session.passport);
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-  req.uid = req.session.passport.user;
-  next();
-};
 
-// Admin session validation middleware
-const validateAdminSession = async (req, res, next) => {
-  // Check if session data exists
-  if (!req.session || !req.session.passport || !req.session.passport.user) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-
-  try {
-    // Get uid from the session
-    const uid = req.session.passport.user;
-
-    // Fetch admin and mod data
-    const adminResponse = await fetch(
-      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/admin/manage/admins-mods`,
-      {
-        credentials: "include",
-        headers: {
-          Cookie: req.headers.cookie,
-        },
-      }
-    );
-    const adminData = await adminResponse.json();
-
-    if (!adminResponse.ok || !adminData) {
-      return res.status(403).json({ error: "Unable to fetch admin data" });
-    }
-
-    // Check if user is an admin
-    const isAdmin = adminData.admins.members.some((admin) => admin.uid === uid);
-
-    if (isAdmin) {
-      next();
-    } else {
-      res
-        .status(403)
-        .json({ error: "You need to be an administrator to do that" });
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error validating session" });
-  }
-};
 
 // Replace with the ID of the Google Sheet you want to update
 const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID;
@@ -200,28 +149,6 @@ app.post("/fetch-headers", async (req, res) => {
 
   const results = await Promise.all(fetchedResources.map(fetchHeaders));
   res.json(results);
-});
-
-app.get("/user", validateSession, async (req, res) => {
-  const userId = req.uid;
-  const userKey = `user:${userId}`;
-
-  try {
-    await client.connect();
-    const database = client.db(mongoEnv);
-    const collection = database.collection("objects");
-
-    const user = await collection.findOne({ _key: userKey });
-
-    if (user) {
-      res.status(200).json(user);
-    } else {
-      res.status(404).json({ message: "User not found" });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error connecting to the database" });
-  }
 });
 
 app.put("/user", validateSession, async (req, res) => {

@@ -1,4 +1,4 @@
-// mongodb.js - Enhanced MongoDB client for third-party integration
+// mongodb.js - Fixed MongoDB client for third-party integration
 const { MongoClient } = require('mongodb');
 
 // Configuration - Detect environment and set appropriate variables
@@ -28,10 +28,10 @@ const getConfig = () => {
 
     // Express MongoDB configuration (local or container)
     const expressConfig = {
-        user: process.env.EXPRESS_MONGO_USER,
-        password: process.env.EXPRESS_MONGO_PASSWORD,
+        user: process.env.EXPRESS_MONGO_USER || process.env.MONGO_USER,
+        password: process.env.EXPRESS_MONGO_PASSWORD || process.env.MONGO_PASSWORD,
         host: process.env.EXPRESS_MONGO_HOST || 'farmtoschool.fpauuua.mongodb.net',
-        database: mongoEnv
+        database: process.env.EXPRESS_MONGO_DATABASE || mongoEnv
     };
 
     // Choose configuration based on environment
@@ -63,6 +63,7 @@ const getMongoURL = () => {
         if (useAzure) {
             return `mongodb://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}${config.options}`;
         } else {
+            // Ensure we're using the correct format for MongoDB Atlas connection
             return `mongodb+srv://${config.user}:${config.password}@${config.host}/${config.database}`;
         }
     } catch (error) {
@@ -97,6 +98,8 @@ let lastError = null;
 const initialize = () => {
     try {
         const mongoURL = getMongoURL();
+        // Debug log to check the actual URL
+        console.log('MongoDB URL:', mongoURL.replace(/\/\/.*:.*@/, '//***:***@')); // Log URL with credentials masked
         client = new MongoClient(mongoURL, connectionOptions);
         console.log('MongoDB client initialized');
         return true;
@@ -128,10 +131,10 @@ const connect = async () => {
             connected = true;
 
             // Get database
-            const { mongoEnv } = getConfig();
-            db = client.db(mongoEnv);
+            const { config } = getConfig();
+            db = client.db(config.database);
 
-            console.log(`Connected to MongoDB database '${mongoEnv}'`);
+            console.log(`Connected to MongoDB database '${config.database}'`);
             return client;
         } catch (error) {
             attempts++;

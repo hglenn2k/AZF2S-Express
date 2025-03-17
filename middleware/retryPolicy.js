@@ -24,9 +24,9 @@ const getConfig = () => {
 
     // MongoDB configuration based on connection type
     let config = {
-        user: process.env.MONGO_USER,
-        password: process.env.MONGO_PASSWORD,
-        database: mongoEnv,
+        user: process.env.EXPRESS_MONGO_USER,
+        password: process.env.EXPRESS_MONGO_PASSWORD,
+        database: process.env.MONGO_ENV,
         connectionType
     };
 
@@ -34,7 +34,7 @@ const getConfig = () => {
     switch (connectionType) {
         case 'local':
             // Local or Docker container setup
-            config.host = process.env.MONGO_HOST || 'mongodb';
+            config.host = process.env.MONGO_HOST || 'localhost';
             config.port = process.env.MONGO_PORT || '27017';
             break;
 
@@ -49,6 +49,8 @@ const getConfig = () => {
         default:
             // MongoDB Atlas configuration (default)
             config.host = process.env.MONGO_ATLAS_HOST || 'farmtoschool.fpauuua.mongodb.net';
+            // Atlas doesn't use port in the connection string
+            config.port = null;
             break;
     }
 
