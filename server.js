@@ -1,4 +1,3 @@
-const fs = require("fs");
 const express = require("express");
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
@@ -6,20 +5,26 @@ const { google } = require("googleapis");
 const cors = require("cors");
 const axios = require("axios");
 require("dotenv").config();
-const passport = require("passport");
-const cookieParser = require("cookie-parser");
 const nodemailer = require("nodemailer");
-const multer = require("multer");
-const upload = multer({ storage: multer.memoryStorage() });
 const fetch = require("node-fetch");
 const dayjs = require("dayjs");
 const { ObjectId } = require("mongodb");
-
+const {notFoundMiddleware, errorMiddleware} = require("./middleware/errorHandling");
+const {validateSession, validateAdminSession } = require("./middleware/validateSession");
 const app = express();
 const MongoClient = require("mongodb").MongoClient;
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+const { sanitizeRequestBody } = require("./middleware/sanitizeRequests")
 
-console.log(process.env.GOOGLE_SPREADSHEET_ID);
+// Unit test middleware
+console.log('Validating critical modules before startup...');
+try {
+  require('./tests/testMiddlewareOnStartup');
+  console.log('Critical modules validated successfully');
+} catch (error) {
+  console.error('FATAL ERROR: Module validation failed', error);
+  process.exit(1);
+}
 
 // Add the MongoDB connection URL
 const mongoEnv = process.env.MONGO_ENV
@@ -47,59 +52,8 @@ app.use(
     saveUninitialized: false,
   })
 );
+app.use(sanitizeRequestBody);
 
-// Session validation middleware
-const validateSession = async (req, res, next) => {
-  if (!req.session || !req.session.passport || !req.session.passport.user) {
-    console.log(req.session.passport);
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-  req.uid = req.session.passport.user;
-  next();
-};
-
-// Admin session validation middleware
-const validateAdminSession = async (req, res, next) => {
-  // Check if session data exists
-  if (!req.session || !req.session.passport || !req.session.passport.user) {
-    return res.status(401).json({ success: false, message: "Unauthorized" });
-  }
-
-  try {
-    // Get uid from the session
-    const uid = req.session.passport.user;
-
-    // Fetch admin and mod data
-    const adminResponse = await fetch(
-      `${process.env.DOMAIN}/forum-api/api/admin/manage/admins-mods`,
-      {
-        credentials: "include",
-        headers: {
-          Cookie: req.headers.cookie,
-        },
-      }
-    );
-    const adminData = await adminResponse.json();
-
-    if (!adminResponse.ok || !adminData) {
-      return res.status(403).json({ error: "Unable to fetch admin data" });
-    }
-
-    // Check if user is an admin
-    const isAdmin = adminData.admins.members.some((admin) => admin.uid === uid);
-
-    if (isAdmin) {
-      next();
-    } else {
-      res
-        .status(403)
-        .json({ error: "You need to be an administrator to do that" });
-    }
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error validating session" });
-  }
-};
 
 // Replace with the ID of the Google Sheet you want to update
 const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID;
@@ -141,6 +95,10 @@ app.use(
     credentials: true,
   })
 );
+
+// Signup Routes
+const user_routes = require('./routes/user/user_routes.js');
+app.use('/user/', user_routes);
 
 let transporter = nodemailer.createTransport({
   host: process.env.BREVO_SMTP_SERVER,
@@ -194,53 +152,6 @@ app.post("/fetch-headers", async (req, res) => {
   res.json(results);
 });
 
-app.post("/sign-up", async (req, res) => {
-  const { username, password, email } = req.body;
-  const _uid = 1;
-  const apiConfig = {
-    headers: { Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}` },
-  };
-
-  try {
-    const response = await axios.post(
-      `${process.env.DOMAIN}/forum-api/api/v3/users/`,
-      { _uid, username, password, email },
-      apiConfig
-    );
-
-    if (response.headers["set-cookie"]) {
-      res.setHeader("set-cookie", response.headers["set-cookie"]);
-    }
-
-    res.json(response.data);
-  } catch (error) {
-    console.error("Error during sign-up:", error);
-    res.status(500).json({ error: error });
-  }
-});
-
-app.get("/user", validateSession, async (req, res) => {
-  const userId = req.uid;
-  const userKey = `user:${userId}`;
-
-  try {
-    await client.connect();
-    const database = client.db(mongoEnv);
-    const collection = database.collection("objects");
-
-    const user = await collection.findOne({ _key: userKey });
-
-    if (user) {
-      res.status(200).json(user);
-    } else {
-      res.status(404).json({ message: "User not found" });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error connecting to the database" });
-  }
-});
-
 app.put("/user", validateSession, async (req, res) => {
   const userId = req.uid;
   const userKey = `user:${userId}`;
@@ -288,7 +199,6 @@ app.put("/submit-form", validateSession, async (req, res) => {
     await client.connect();
     const database = client.db(mongoEnv);
     const usersCollection = database.collection("objects");
-    const orgsCollection = database.collection("organizations");
 
     // Update User
     const userResult = await usersCollection.updateOne(
@@ -324,9 +234,8 @@ app.put("/renew-membership", validateSession, async (req, res) => {
     await client.connect();
     const database = client.db(mongoEnv);
     const usersCollection = database.collection("objects");
-    const orgsCollection = database.collection("organizations");
 
-    // Update User
+// Update User
     const userResult = await usersCollection.updateOne(
       { _key: userKey },
       { $set: updateData }
@@ -344,51 +253,6 @@ app.put("/renew-membership", validateSession, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error updating user and organizations" });
-  }
-});
-
-app.put("/new-user", async (req, res) => {
-  const userKey = `user:${req.body.uid}`;
-  const updateData = {
-    // Full name
-    fullname: req.body.fullname,
-
-    // Email address
-    email: req.body.email,
-
-    // Legal stuff
-    agreetotos: true,
-    isadult: true,
-
-    // Newsletter
-    receivenewsletter: req.body.receivenewsletter,
-
-    // Membership
-    memberstatus: "unverified",
-    recentlyverified: false,
-  };
-
-  try {
-    await client.connect();
-    const database = client.db(mongoEnv);
-    const collection = database.collection("objects");
-
-    const result = await collection.updateOne(
-      { _key: userKey },
-      { $set: updateData }
-    );
-
-    if (result.matchedCount > 0) {
-      const updatedUser = await collection.findOne({ _key: userKey });
-      res
-        .status(200)
-        .json({ message: "User updated successfully", user: updatedUser });
-    } else {
-      res.status(404).json({ message: "User not found" });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error updating user" });
   }
 });
 
@@ -420,19 +284,19 @@ app.put("/user-settings", validateSession, async (req, res) => {
 
   console.log(req.body);
   try {
-    const response = await axios.put(
-      `${process.env.DOMAIN}/forum-api/api/v3/users/` + userId + "/settings",
-      {
-        settings: {
-          showemail: req.body.showemail.toString(),
-          showfullname: req.body.showfullname.toString(),
+    await axios.put(
+        `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/users/` + userId + "/settings",
+        {
+          settings: {
+            showemail: req.body.showemail.toString(),
+            showfullname: req.body.showfullname.toString(),
+          },
         },
-      },
-      {
-        headers: {
-          Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
-        },
-      }
+        {
+          headers: {
+            Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
+          },
+        }
     );
   } catch (error) {
     res.status(500).json({ message: "Error updating user settings" });
@@ -442,7 +306,7 @@ app.put("/user-settings", validateSession, async (req, res) => {
 app.get("/notifications", validateSession, async (req, res) => {
   try {
     const response = await axios.get(
-      `${process.env.DOMAIN}/forum-api/api/notifications`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/notifications`,
       {
         headers: {
           Cookie: req.headers.cookie,
@@ -462,51 +326,6 @@ app.get("/notifications", validateSession, async (req, res) => {
   }
 });
 
-app.post("/login", async (req, res) => {
-  try {
-    const response = await axios.post(
-      `${process.env.DOMAIN}/forum-api/api/v3/utilities/login`,
-      {
-        _uid: 1,
-        username: req.body.username,
-        password: req.body.password,
-      },
-      {
-        headers: {
-          "X-CSRF-Token": req.body.csrf,
-          Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
-        },
-      }
-    );
-
-    console.log(response.data); // Log the response data
-    res.send(response.data); // Send the response to the client
-  } catch (error) {
-    console.error(error); // Log any error that occurred
-    res.status(500).send("Internal Server Error"); // Send an error response to the client
-  }
-});
-
-app.get("/logout", validateSession, (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error logging out" });
-    } else {
-      res.clearCookie("express.sid"); // Clear the session cookie
-      res.status(200).json({ message: "Logged out successfully" });
-    }
-  });
-});
-
-//Function concatenates base search params with the requests search params
-function jsonConcat(o1, o2) {
-  for (var key in o2) {
-    o1[key] = o2[key];
-  }
-  return o1;
-}
-
 app.get("/about", async (req, res) => {
   const spreadsheetId = "1ZDgVdMu75baR1z8m8QK3ti-ZO4KIrQmw244VSKt3S6c";
   const tabName = "People";
@@ -525,7 +344,7 @@ app.get("/about", async (req, res) => {
     let data = await response.json();
     const output = data.values;
     const categories = output[0];
-    const bios = output.map((bio, index) =>
+    const bios = output.map((bio) =>
       categories.reduce(
         (obj, key, index) => ({ ...obj, [key]: bio[index] }),
         {}
@@ -555,7 +374,7 @@ app.get("/calendar", async (req, res) => {
     let data = await response.json();
     const output = data.values;
     const categories = output[0];
-    const events = output.map((event, index) =>
+    const events = output.map((event) =>
       categories.reduce(
         (obj, key, index) => ({ ...obj, [key]: event[index] }),
         {}
@@ -585,7 +404,7 @@ app.get("/faq", async (req, res) => {
     let data = await response.json();
     const output = data.values;
     const categories = output[0];
-    const questions = output.map((question, index) =>
+    const questions = output.map((question) =>
       categories.reduce(
         (obj, key, index) => ({ ...obj, [key]: question[index] }),
         {}
@@ -703,12 +522,12 @@ app.get("/resources", async (req, res) => {
     let response = await fetch(url);
     let data = await response.json();
     const output = data.values.map((row) =>
-      row.filter((cell, index) => (index % 2 === 0 ? false : true))
+      row.filter((cell, index) => (index % 2 !== 0))
     );
     const categories = output[0];
     const resources = output
       .slice(3)
-      .map((resource, index) =>
+      .map((resource) =>
         categories.reduce(
           (obj, key, index) => ({ ...obj, [key]: resource[index] }),
           {}
@@ -722,7 +541,7 @@ app.get("/resources", async (req, res) => {
 
 app.post("/contact-list-users", async (req, res) => {
   //Base search params will find only user accounts with the settings object
-  var jsonSearchParams = {
+  const jsonSearchParams = {
     appearoncontactlist: true,
     memberstatus: "verified",
   };
@@ -768,34 +587,6 @@ app.post("/contact-list-users", async (req, res) => {
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Error finding users" });
-  }
-});
-
-app.post("/is-account-available", async (req, res) => {
-  // Check the account username and email
-  var username = req.body.username;
-  var email = req.body.email;
-
-  try {
-    await client.connect();
-    const database = client.db(mongoEnv);
-    const collection = database.collection("objects");
-
-    // Search for the user account by username with _key that starts with "user:"
-    const userByUsername = await collection.findOne({ _key: /^user:/, username: username });
-
-    // Search for the user account by email with _key that starts with "user:"
-    const userByEmail = await collection.findOne({ _key: /^user:/, email: email });
-
-    // If either the username or email is found, the account is already taken
-    if (userByUsername || userByEmail) {
-      res.status(403).json({ message: "Username or email already exists" });
-    } else {
-      res.status(200).json({ message: "Both username and email are available" });
-    }
-  } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: "Error checking account availability" });
   }
 });
 
@@ -861,7 +652,7 @@ app.post("/send-contact-email", async (req, res) => {
     to: "contact@azfarmtoschool.org",
     subject: "New Contact-Us Message",
     html:
-      "<html><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name : </strong></td><td>" +
+      "<html lang='en'><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name : </strong></td><td>" +
       fullName +
       "</td></tr><tr><td valign='top'><strong>Email: </strong></td><td>" +
       email +
@@ -879,7 +670,7 @@ async function addUserToGroups(req, userId, groups) {
   const userKey = `user:${userId}`;
 
   const configResponse = await axios.get(
-    `${process.env.DOMAIN}/forum-api/api/config`,
+    `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
     {
       headers: {
         "Content-Type": "application/json",
@@ -896,7 +687,7 @@ async function addUserToGroups(req, userId, groups) {
 
   const groupAddPromises = groupSlugs.map((groupSlug) => {
     return fetch(
-      `${process.env.DOMAIN}/forum-api/api/v3/groups/${groupSlug}/membership/${userId}`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
       {
         method: "PUT",
         headers: {
@@ -957,7 +748,7 @@ async function removeUserFromGroups(req, userId, groups) {
   const userKey = `user:${userId}`;
 
   const configResponse = await axios.get(
-    `${process.env.DOMAIN}/forum-api/api/config`,
+    `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
     {
       headers: {
         "Content-Type": "application/json",
@@ -974,7 +765,7 @@ async function removeUserFromGroups(req, userId, groups) {
 
   const groupAddPromises = groupSlugs.map((groupSlug) => {
     return fetch(
-      `${process.env.DOMAIN}/forum-api/api/v3/groups/${groupSlug}/membership/${userId}`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
       {
         method: "DELETE",
         headers: {
@@ -1057,9 +848,7 @@ app.put("/accept-membership", validateAdminSession, async (req, res) => {
         recentlyverified: isRecentlyVerified,
       },
     };
-
-    const result = await collection.updateOne({ _key: userKey }, updateQuery);
-
+    await collection.updateOne({ _key: userKey }, updateQuery);
     // Get organization ids from user's organizations array
     const orgIds = user.organizations.map((org) => new ObjectId(org._id));
 
@@ -1456,46 +1245,6 @@ app.get("/verified-organizations", validateSession, async (req, res) => {
   }
 });
 
-app.post("/new-user-email", async (req, res) => {
-  const fullName = req.body.fullName;
-  const email = req.body.email;
-  const username = req.body.username;
-
-  let current = new Date();
-  let cDate =
-    current.getFullYear() +
-    "-" +
-    (current.getMonth() + 1) +
-    "-" +
-    current.getDate();
-  let cTime =
-    current.getHours() +
-    ":" +
-    current.getMinutes() +
-    ":" +
-    current.getSeconds();
-  let dateTime = cDate + " " + cTime + " UTC";
-
-  let info = await transporter.sendMail({
-    from: '"[New User]" <new-user@azfarmtoschool.org>',
-    to: "support@azfarmtoschool.org",
-    cc: "azfarmtoschoolnetwork@gmail.com",
-    subject: "New User Registered",
-    html:
-      "<html><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name: </strong></td><td>" +
-      fullName +
-      "</td></tr><tr><td valign='top'><strong>Username: </strong></td><td>" +
-      username +
-      "</td></tr><tr><td  valign='top'><strong>Email: </strong></td><td>" +
-      email +
-      "</td></tr><tr><td  valign='top'><strong>Timestamp: </strong></td><td>" +
-      dateTime +
-      " UTC</td></tr></table></body></html>",
-  });
-
-  res.send(info);
-});
-
 app.post("/new-member-request", async (req, res) => {
   const fullName = req.body.fullName;
   const email = req.body.email;
@@ -1522,7 +1271,7 @@ app.post("/new-member-request", async (req, res) => {
     cc: "azfarmtoschoolnetwork@gmail.com",
     subject: "New Membership Form Submitted",
     html:
-      "<html><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name: </strong></td><td>" +
+      "<html lang='en'><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name: </strong></td><td>" +
       fullName +
       "</td></tr><tr><td valign='top'><strong>Username: </strong></td><td>" +
       username +
@@ -1539,7 +1288,7 @@ app.post("/new-member-request", async (req, res) => {
 app.get("/group-colors", async (req, res) => {
   try {
     const response = await axios.get(
-      `${process.env.DOMAIN}/forum-api/api/groups`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/groups`,
       {
         withCredentials: false,
       }
@@ -1586,8 +1335,39 @@ app.post("/user-orgs", validateSession, async (req, res) => {
   }
 });
 
+app.use(notFoundMiddleware);
+app.use(errorMiddleware);
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION! Shutting down...', err.name, err.message);
+  console.error(err.stack);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION! Shutting down...', err.name, err.message);
+  console.error(err.stack);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  const { disconnect } = require('./third_party/mongodb');
+
+  disconnect()
+      .then(() => {
+        console.log('MongoDB disconnected successfully');
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('Error during graceful shutdown:', err);
+        process.exit(1);
+      });
 });
 
 app.get("/user-checklist", validateSession, async (req, res) => {
@@ -1639,7 +1419,7 @@ app.post("/submit-resource", async (req, res) => {
     cc: "raevynxavier@azfarmtoschool.org",
     subject: "New Resource Submission",
     html: `
-      <html>
+      <html lang="en">
         <body>
           <h2>New Resource Submission</h2>
           <table style='border:0; vertical-align:top;'>
