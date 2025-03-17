@@ -11,10 +11,10 @@ const dayjs = require("dayjs");
 const { ObjectId } = require("mongodb");
 const {notFoundMiddleware, errorMiddleware} = require("./middleware/errorHandling");
 const {validateSession, validateAdminSession } = require("./middleware/validateSession");
+const { sanitizeRequestBody } = require("./middleware/sanitizeRequests"); // Add this back
 const app = express();
-const MongoClient = require("mongodb").MongoClient;
 const PORT = process.env.PORT || 3001;
-const { sanitizeRequestBody } = require("./middleware/sanitizeRequests")
+const client = require('./third_party/mongodb');
 
 // Unit test middleware
 console.log('Validating critical modules before startup...');
@@ -26,35 +26,51 @@ try {
   process.exit(1);
 }
 
-// Add the MongoDB connection URL
-const mongoEnv = process.env.MONGO_ENV
-const mongoURL =
-  "mongodb+srv://" +
-  process.env.EXPRESS_MONGO_USER +
-  ":" +
-  process.env.EXPRESS_MONGO_PASSWORD +
-  "@farmtoschool.fpauuua.mongodb.net/" +
-  mongoEnv;
-
-// Configure session store
-const sessionStore = MongoStore.create({
-  mongoUrl: mongoURL,
-  collectionName: "sessions",
-});
-
-// Configure session middleware
-app.use(
-  session({
-    store: sessionStore,
-    secret: process.env.EXPRESS_SESSION_SECRET,
-    key: "express.sid",
-    resave: false,
-    saveUninitialized: false,
-  })
-);
+// Setup basic middleware
 app.set('trust proxy', 1);
-app.use(sanitizeRequestBody);
+app.use(express.json());
+app.use(sanitizeRequestBody); // Add this back
 
+// MongoDB connection and session setup
+(async function setupMongo() {
+  try {
+    // Import the mongodb client module correctly
+    const mongoClient = require('./third_party/mongodb');
+    await mongoClient.connect();
+    console.log('MongoDB connected successfully');
+
+    const sessionStore = MongoStore.create({
+      client: await mongoClient.connect(),
+      collectionName: "sessions",
+      stringify: false
+    });
+
+    // Configure session middleware (only once)
+    app.use(
+        session({
+          store: sessionStore,
+          secret: process.env.EXPRESS_SESSION_SECRET,
+          key: "express.sid",
+          resave: false,
+          saveUninitialized: false,
+        })
+    );
+
+    // Add a health check endpoint
+    app.get('/health', async (req, res) => {
+      const mongoStatus = await mongoClient.ping();
+      res.status(200).json({
+        status: 'ok',
+        mongo: mongoStatus,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+  } catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
+    process.exit(1);
+  }
+})();
 
 // Replace with the ID of the Google Sheet you want to update
 const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID;
@@ -76,25 +92,20 @@ const credentials = {
 };
 
 const jwtClient = new google.auth.JWT(
-  credentials.client_email,
-  null,
-  credentials.private_key,
-  ["https://www.googleapis.com/auth/spreadsheets"],
-  null
+    credentials.client_email,
+    null,
+    credentials.private_key,
+    ["https://www.googleapis.com/auth/spreadsheets"],
+    null
 );
 
-const client = new MongoClient(mongoURL, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-
-app.use(express.json());
-
+// Improved CORS configuration
 app.use(
-  cors({
-    origin: process.env.DOMAIN,
-    credentials: true,
-  })
+    cors({
+      origin: process.env.REACT_APP_DOMAIN || 'http://localhost',
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+    })
 );
 
 // Signup Routes

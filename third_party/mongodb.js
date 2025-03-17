@@ -238,9 +238,17 @@ const ping = async () => {
     }
 };
 
+const clientPromise = async () => {
+    if (!connected) {
+        await connect();
+    }
+    return client;
+};
+
 // Export the MongoDB client interface
 module.exports = {
     client,
+    clientPromise,
     connect,
     getDB,
     getCollection,
