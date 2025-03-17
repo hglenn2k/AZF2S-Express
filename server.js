@@ -398,18 +398,6 @@ app.get("/notifications", validateSession, async (req, res) => {
   }
 });
 
-app.get("/logout", validateSession, (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error(err);
-      res.status(500).json({ message: "Error logging out" });
-    } else {
-      res.clearCookie("express.sid"); // Clear the session cookie
-      res.status(200).json({ message: "Logged out successfully" });
-    }
-  });
-});
-
 app.get("/about", async (req, res) => {
   const spreadsheetId = "1ZDgVdMu75baR1z8m8QK3ti-ZO4KIrQmw244VSKt3S6c";
   const tabName = "People";
