@@ -1,4 +1,3 @@
-const fs = require("fs");
 const express = require("express");
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
@@ -6,20 +5,25 @@ const { google } = require("googleapis");
 const cors = require("cors");
 const axios = require("axios");
 require("dotenv").config();
-const passport = require("passport");
-const cookieParser = require("cookie-parser");
 const nodemailer = require("nodemailer");
-const multer = require("multer");
-const upload = multer({ storage: multer.memoryStorage() });
 const fetch = require("node-fetch");
 const dayjs = require("dayjs");
 const { ObjectId } = require("mongodb");
+const {notFoundMiddleware, errorMiddleware} = require("./middleware/errorHandling");
 
 const app = express();
 const MongoClient = require("mongodb").MongoClient;
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
-console.log(process.env.GOOGLE_SPREADSHEET_ID);
+// Unit test middleware
+console.log('Validating critical modules before startup...');
+try {
+  require('./middleware/testMiddlewareOnStartup');
+  console.log('Critical modules validated successfully');
+} catch (error) {
+  console.error('FATAL ERROR: Module validation failed', error);
+  process.exit(1);
+}
 
 // Add the MongoDB connection URL
 const mongoEnv = process.env.MONGO_ENV
@@ -71,7 +75,7 @@ const validateAdminSession = async (req, res, next) => {
 
     // Fetch admin and mod data
     const adminResponse = await fetch(
-      `${process.env.DOMAIN}/forum-api/api/admin/manage/admins-mods`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/admin/manage/admins-mods`,
       {
         credentials: "include",
         headers: {
@@ -141,6 +145,10 @@ app.use(
     credentials: true,
   })
 );
+
+// Signup Routes
+const user_routes = require('./routes/user/user_routes.js');
+app.use('/user/', user_routes);
 
 let transporter = nodemailer.createTransport({
   host: process.env.BREVO_SMTP_SERVER,
@@ -263,7 +271,6 @@ app.put("/submit-form", validateSession, async (req, res) => {
     await client.connect();
     const database = client.db(mongoEnv);
     const usersCollection = database.collection("objects");
-    const orgsCollection = database.collection("organizations");
 
     // Update User
     const userResult = await usersCollection.updateOne(
@@ -299,9 +306,8 @@ app.put("/renew-membership", validateSession, async (req, res) => {
     await client.connect();
     const database = client.db(mongoEnv);
     const usersCollection = database.collection("objects");
-    const orgsCollection = database.collection("organizations");
 
-    // Update User
+// Update User
     const userResult = await usersCollection.updateOne(
       { _key: userKey },
       { $set: updateData }
@@ -350,19 +356,19 @@ app.put("/user-settings", validateSession, async (req, res) => {
 
   console.log(req.body);
   try {
-    const response = await axios.put(
-      `${process.env.DOMAIN}/forum-api/api/v3/users/` + userId + "/settings",
-      {
-        settings: {
-          showemail: req.body.showemail.toString(),
-          showfullname: req.body.showfullname.toString(),
+    await axios.put(
+        `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/users/` + userId + "/settings",
+        {
+          settings: {
+            showemail: req.body.showemail.toString(),
+            showfullname: req.body.showfullname.toString(),
+          },
         },
-      },
-      {
-        headers: {
-          Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
-        },
-      }
+        {
+          headers: {
+            Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
+          },
+        }
     );
   } catch (error) {
     res.status(500).json({ message: "Error updating user settings" });
@@ -372,7 +378,7 @@ app.put("/user-settings", validateSession, async (req, res) => {
 app.get("/notifications", validateSession, async (req, res) => {
   try {
     const response = await axios.get(
-      `${process.env.DOMAIN}/forum-api/api/notifications`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/notifications`,
       {
         headers: {
           Cookie: req.headers.cookie,
@@ -404,14 +410,6 @@ app.get("/logout", validateSession, (req, res) => {
   });
 });
 
-//Function concatenates base search params with the requests search params
-function jsonConcat(o1, o2) {
-  for (var key in o2) {
-    o1[key] = o2[key];
-  }
-  return o1;
-}
-
 app.get("/about", async (req, res) => {
   const spreadsheetId = "1ZDgVdMu75baR1z8m8QK3ti-ZO4KIrQmw244VSKt3S6c";
   const tabName = "People";
@@ -430,7 +428,7 @@ app.get("/about", async (req, res) => {
     let data = await response.json();
     const output = data.values;
     const categories = output[0];
-    const bios = output.map((bio, index) =>
+    const bios = output.map((bio) =>
       categories.reduce(
         (obj, key, index) => ({ ...obj, [key]: bio[index] }),
         {}
@@ -460,7 +458,7 @@ app.get("/calendar", async (req, res) => {
     let data = await response.json();
     const output = data.values;
     const categories = output[0];
-    const events = output.map((event, index) =>
+    const events = output.map((event) =>
       categories.reduce(
         (obj, key, index) => ({ ...obj, [key]: event[index] }),
         {}
@@ -490,7 +488,7 @@ app.get("/faq", async (req, res) => {
     let data = await response.json();
     const output = data.values;
     const categories = output[0];
-    const questions = output.map((question, index) =>
+    const questions = output.map((question) =>
       categories.reduce(
         (obj, key, index) => ({ ...obj, [key]: question[index] }),
         {}
@@ -608,12 +606,12 @@ app.get("/resources", async (req, res) => {
     let response = await fetch(url);
     let data = await response.json();
     const output = data.values.map((row) =>
-      row.filter((cell, index) => (index % 2 === 0 ? false : true))
+      row.filter((cell, index) => (index % 2 !== 0))
     );
     const categories = output[0];
     const resources = output
       .slice(3)
-      .map((resource, index) =>
+      .map((resource) =>
         categories.reduce(
           (obj, key, index) => ({ ...obj, [key]: resource[index] }),
           {}
@@ -627,7 +625,7 @@ app.get("/resources", async (req, res) => {
 
 app.post("/contact-list-users", async (req, res) => {
   //Base search params will find only user accounts with the settings object
-  var jsonSearchParams = {
+  const jsonSearchParams = {
     appearoncontactlist: true,
     memberstatus: "verified",
   };
@@ -738,7 +736,7 @@ app.post("/send-contact-email", async (req, res) => {
     to: "contact@azfarmtoschool.org",
     subject: "New Contact-Us Message",
     html:
-      "<html><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name : </strong></td><td>" +
+      "<html lang='en'><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name : </strong></td><td>" +
       fullName +
       "</td></tr><tr><td valign='top'><strong>Email: </strong></td><td>" +
       email +
@@ -756,7 +754,7 @@ async function addUserToGroups(req, userId, groups) {
   const userKey = `user:${userId}`;
 
   const configResponse = await axios.get(
-    `${process.env.DOMAIN}/forum-api/api/config`,
+    `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
     {
       headers: {
         "Content-Type": "application/json",
@@ -773,7 +771,7 @@ async function addUserToGroups(req, userId, groups) {
 
   const groupAddPromises = groupSlugs.map((groupSlug) => {
     return fetch(
-      `${process.env.DOMAIN}/forum-api/api/v3/groups/${groupSlug}/membership/${userId}`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
       {
         method: "PUT",
         headers: {
@@ -834,7 +832,7 @@ async function removeUserFromGroups(req, userId, groups) {
   const userKey = `user:${userId}`;
 
   const configResponse = await axios.get(
-    `${process.env.DOMAIN}/forum-api/api/config`,
+    `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
     {
       headers: {
         "Content-Type": "application/json",
@@ -851,7 +849,7 @@ async function removeUserFromGroups(req, userId, groups) {
 
   const groupAddPromises = groupSlugs.map((groupSlug) => {
     return fetch(
-      `${process.env.DOMAIN}/forum-api/api/v3/groups/${groupSlug}/membership/${userId}`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
       {
         method: "DELETE",
         headers: {
@@ -934,9 +932,7 @@ app.put("/accept-membership", validateAdminSession, async (req, res) => {
         recentlyverified: isRecentlyVerified,
       },
     };
-
-    const result = await collection.updateOne({ _key: userKey }, updateQuery);
-
+    await collection.updateOne({ _key: userKey }, updateQuery);
     // Get organization ids from user's organizations array
     const orgIds = user.organizations.map((org) => new ObjectId(org._id));
 
@@ -1359,7 +1355,7 @@ app.post("/new-member-request", async (req, res) => {
     cc: "azfarmtoschoolnetwork@gmail.com",
     subject: "New Membership Form Submitted",
     html:
-      "<html><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name: </strong></td><td>" +
+      "<html lang='en'><body><br><table style='border:0; vertical-align:top;'><tr><td valign='top'><strong>Name: </strong></td><td>" +
       fullName +
       "</td></tr><tr><td valign='top'><strong>Username: </strong></td><td>" +
       username +
@@ -1376,7 +1372,7 @@ app.post("/new-member-request", async (req, res) => {
 app.get("/group-colors", async (req, res) => {
   try {
     const response = await axios.get(
-      `${process.env.DOMAIN}/forum-api/api/groups`,
+      `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/groups`,
       {
         withCredentials: false,
       }
@@ -1423,8 +1419,39 @@ app.post("/user-orgs", validateSession, async (req, res) => {
   }
 });
 
+app.use(notFoundMiddleware);
+app.use(errorMiddleware);
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION! Shutting down...', err.name, err.message);
+  console.error(err.stack);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION! Shutting down...', err.name, err.message);
+  console.error(err.stack);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  const { disconnect } = require('./third_party/mongodb');
+
+  disconnect()
+      .then(() => {
+        console.log('MongoDB disconnected successfully');
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('Error during graceful shutdown:', err);
+        process.exit(1);
+      });
 });
 
 app.get("/user-checklist", validateSession, async (req, res) => {
@@ -1476,7 +1503,7 @@ app.post("/submit-resource", async (req, res) => {
     cc: "raevynxavier@azfarmtoschool.org",
     subject: "New Resource Submission",
     html: `
-      <html>
+      <html lang="en">
         <body>
           <h2>New Resource Submission</h2>
           <table style='border:0; vertical-align:top;'>

@@ -1,4 +1,4 @@
-// mongodb.js - Enhanced MongoDB client for third-party integration
+// middleware/retryPolicy.js
 const { MongoClient } = require('mongodb');
 
 // Configuration - Detect environment and set appropriate variables
@@ -8,34 +8,49 @@ const ENVIRONMENTS = {
     production: 'production'
 };
 
+// Cache for configuration
+let configCache = null;
+
 // Get environment variables for MongoDB connection
 const getConfig = () => {
+    // Return cached config if available
+    if (configCache) return configCache;
+
     // Get environment
     const mongoEnv = process.env.MONGO_ENV || ENVIRONMENTS.development;
 
-    // Determine connection source (Azure vs local)
-    const useAzure = process.env.USE_AZURE_MONGODB === 'true';
+    // Determine connection type
+    const connectionType = (process.env.MONGO_CONNECTION_TYPE || 'atlas').toLowerCase();
 
-    // Azure Cosmos DB configuration
-    const azureConfig = {
-        user: process.env.AZURE_COSMOS_DB_USER,
-        password: process.env.AZURE_COSMOS_DB_PASSWORD,
-        host: process.env.AZURE_COSMOS_DB_HOST || 'your-cosmos-db-name.mongo.cosmos.azure.com',
-        port: process.env.AZURE_COSMOS_DB_PORT || '10255',
-        database: process.env.AZURE_COSMOS_DB_DATABASE || mongoEnv,
-        options: '?ssl=true&retrywrites=false&maxIdleTimeMS=120000'
+    // MongoDB configuration based on connection type
+    let config = {
+        user: process.env.MONGO_USER,
+        password: process.env.MONGO_PASSWORD,
+        database: mongoEnv,
+        connectionType
     };
 
-    // Express MongoDB configuration (local or container)
-    const expressConfig = {
-        user: process.env.EXPRESS_MONGO_USER,
-        password: process.env.EXPRESS_MONGO_PASSWORD,
-        host: process.env.EXPRESS_MONGO_HOST || 'farmtoschool.fpauuua.mongodb.net',
-        database: mongoEnv
-    };
+    // Add specific configuration based on connection type
+    switch (connectionType) {
+        case 'local':
+            // Local or Docker container setup
+            config.host = process.env.MONGO_HOST || 'mongodb';
+            config.port = process.env.MONGO_PORT || '27017';
+            break;
 
-    // Choose configuration based on environment
-    const config = useAzure ? azureConfig : expressConfig;
+        case 'azure':
+            // Azure Cosmos DB configuration
+            config.host = process.env.AZURE_COSMOS_DB_HOST || 'your-cosmos-db-name.mongo.cosmos.azure.com';
+            config.port = process.env.AZURE_COSMOS_DB_PORT || '10255';
+            config.options = '?ssl=true&retrywrites=false&maxIdleTimeMS=120000';
+            break;
+
+        case 'atlas':
+        default:
+            // MongoDB Atlas configuration (default)
+            config.host = process.env.MONGO_ATLAS_HOST || 'farmtoschool.fpauuua.mongodb.net';
+            break;
+    }
 
     // Verify required parameters
     const missingParams = [];
@@ -51,25 +66,117 @@ const getConfig = () => {
         throw new Error(errorMsg);
     }
 
-    return { config, useAzure, mongoEnv };
+    // Cache the config
+    const useAzure = connectionType === 'azure';
+    configCache = { config, useAzure, mongoEnv };
+    return configCache;
 };
 
 // Build the MongoDB connection URL
 const getMongoURL = () => {
     try {
-        const { config, useAzure } = getConfig();
+        const { config } = getConfig();
 
-        // Build URL based on configuration type
-        if (useAzure) {
-            return `mongodb://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}${config.options}`;
-        } else {
-            return `mongodb+srv://${config.user}:${config.password}@${config.host}/${config.database}`;
+        // Default Docker container MongoDB URL
+        let url = `mongodb://${config.host}:${config.port}/${config.database}`;
+
+        // Add authentication if provided
+        if (config.user && config.password) {
+            url = `mongodb://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}`;
         }
+
+        // Support for Azure Cosmos DB if needed in the future
+        if (config.useAzure === true) {
+            // This would need proper environment variables and configuration
+            // Left as a placeholder for future implementation
+            console.warn('Azure Cosmos DB support is configured but not fully implemented');
+        }
+
+        return url;
     } catch (error) {
         console.error('Failed to build MongoDB URL:', error.message);
         throw error;
     }
 };
+
+/**
+ * Retries an operation with exponential backoff
+ *
+ * @param {Function} operation - Async function to retry
+ * @param {Object} options - Retry options
+ * @param {number} options.maxRetries - Maximum number of retry attempts
+ * @param {number} options.initialDelay - Initial delay in ms
+ * @param {number} options.factor - Exponential backoff factor
+ * @returns {Promise<*>} - Result from the operation
+ */
+async function retryOperation(operation, options = {}) {
+    const maxRetries = options.maxRetries || 3;
+    const initialDelay = options.initialDelay || 1000;
+    const factor = options.factor || 2;
+
+    let lastError;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+        try {
+            return await operation();
+        } catch (error) {
+            lastError = error;
+            attempt++;
+
+            if (attempt >= maxRetries) {
+                break;
+            }
+
+            // Calculate delay with exponential backoff
+            const delay = initialDelay * Math.pow(factor, attempt - 1);
+
+            // Wait before next retry
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+
+    // If we've exhausted all retries, throw the last error
+    throw lastError;
+}
+
+/**
+ * Creates a function that wraps a database operation with retry logic
+ *
+ * @param {Function} dbOperation - Database operation to wrap
+ * @param {Object} options - Retry options
+ * @returns {Function} - Wrapped function with retry logic
+ */
+function withDatabaseRetry(dbOperation, options = {}) {
+    return async (...args) => {
+        const retryOptions = {
+            maxRetries: options.maxRetries || 3,
+            initialDelay: options.initialDelay || 500,
+            factor: options.factor || 1.5
+        };
+
+        return retryOperation(() => dbOperation(...args), retryOptions);
+    };
+}
+
+/**
+ * Creates a function that wraps a network operation with retry logic
+ *
+ * @param {Function} networkOperation - Network operation to wrap
+ * @param {Object} options - Retry options
+ * @returns {Function} - Wrapped function with retry logic
+ */
+function withNetworkRetry(networkOperation, options = {}) {
+    return async (...args) => {
+        const retryOptions = {
+            maxRetries: options.maxRetries || 3,
+            initialDelay: options.initialDelay || 200,
+            factor: options.factor || 2
+        };
+
+        return retryOperation(() => networkOperation(...args), retryOptions);
+    };
+}
 
 // Connection options
 const connectionOptions = {
@@ -121,6 +228,7 @@ const connect = async () => {
 
     let attempts = 0;
     let backoff = RETRY.INITIAL_BACKOFF_MS;
+    const { config } = getConfig();
 
     while (attempts < RETRY.MAX_ATTEMPTS) {
         try {
@@ -128,10 +236,9 @@ const connect = async () => {
             connected = true;
 
             // Get database
-            const { mongoEnv } = getConfig();
-            db = client.db(mongoEnv);
+            db = client.db(config.database);
 
-            console.log(`Connected to MongoDB database '${mongoEnv}'`);
+            console.log(`Connected to MongoDB database '${config.database}'`);
             return client;
         } catch (error) {
             attempts++;
@@ -235,6 +342,11 @@ const ping = async () => {
     }
 };
 
+// Method to reset the config cache (useful for testing)
+const resetConfig = () => {
+    configCache = null;
+};
+
 // Export the MongoDB client interface
 module.exports = {
     client,
@@ -243,16 +355,22 @@ module.exports = {
     getCollection,
     disconnect,
     ping,
+    resetConfig,
+    retryOperation,
+    withDatabaseRetry,
+    withNetworkRetry,
+    // More efficient getter that uses cached config
     get mongoEnv() {
         return getConfig().mongoEnv;
     },
     // Connection status for diagnostics
     get status() {
+        const config = configCache || { mongoEnv: null };
         return {
             initialized: !!client,
             connected,
-            environment: getConfig().mongoEnv,
-            usingAzure: getConfig().useAzure,
+            environment: config.mongoEnv,
+            host: config?.config?.host || 'unknown',
             lastError: lastError ? {
                 message: lastError.message,
                 code: lastError.code,
