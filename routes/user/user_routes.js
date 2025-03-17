@@ -8,7 +8,6 @@ const validation = require('./user_validation');
 const {
     asyncHandler,
     ApiError,
-    sanitizeRequestBody,
     withDatabaseRetry,
     withNetworkRetry,
     configureLimiters
@@ -18,9 +17,6 @@ const {
 const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
     isProduction: process.env.NODE_ENV === 'production'
 });
-
-// Apply sanitization middleware to all routes
-router.use(sanitizeRequestBody);
 
 router.get("/", validateSession, (async (req, res) => {
     // Check if user is authenticated

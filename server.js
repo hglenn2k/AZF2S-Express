@@ -14,6 +14,7 @@ const {validateSession, validateAdminSession } = require("./middleware/validateS
 const app = express();
 const MongoClient = require("mongodb").MongoClient;
 const PORT = process.env.PORT || 3001;
+const { sanitizeRequestBody } = require("./middleware/sanitizeRequests")
 
 // Unit test middleware
 console.log('Validating critical modules before startup...');
@@ -51,7 +52,7 @@ app.use(
     saveUninitialized: false,
   })
 );
-
+app.use(sanitizeRequestBody);
 
 
 // Replace with the ID of the Google Sheet you want to update
