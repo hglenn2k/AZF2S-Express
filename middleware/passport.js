@@ -1,33 +1,21 @@
-// ./middleware/passport.js
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const axios = require('axios');
 
 /**
  * Configure Passport.js authentication
- * @param {Object} app - Express app instance
  */
-const configurePassport = (app) => {
-    // Initialize passport
-    app.use(passport.initialize());
-    app.use(passport.session());
-
+const configurePassport = () => {
     // Passport serialization/deserialization for session support
     passport.serializeUser((user, done) => {
-        // Only store the user ID in the session
         console.log('Serializing user:', user);
-        done(null, user.uid);
+        done(null, user);
     });
 
-    passport.deserializeUser(async (uid, done) => {
-        try {
-            console.log('Deserializing user ID:', uid);
-            // We could fetch more user data here if needed, but the UID is sufficient
-            done(null, { uid });
-        } catch (err) {
-            console.error('User deserialization error:', err);
-            done(err, null);
-        }
+    passport.deserializeUser((user, done) => {
+        console.log('Deserializing user:', user);
+        // Simply return the user object that was stored in the session
+        done(null, user);
     });
 
     // Set up the LocalStrategy for username/password authentication
@@ -35,7 +23,7 @@ const configurePassport = (app) => {
         {
             usernameField: 'username',
             passwordField: 'password',
-            passReqToCallback: true // allows us to pass the entire request to the callback
+            passReqToCallback: true
         },
         async (req, username, password, done) => {
             try {
@@ -45,7 +33,6 @@ const configurePassport = (app) => {
                 const response = await axios.post(
                     `${process.env.DOMAIN}/api/nodebb/api/v3/utilities/login`,
                     {
-                        _uid: 1,
                         username: username,
                         password: password,
                     },
@@ -60,9 +47,9 @@ const configurePassport = (app) => {
                 if (response.data && response.data.success) {
                     console.log(`User ${username} authenticated successfully`);
 
-                    // Pass along cookie headers to the session
+                    // Store cookies in the request object for forwarding to client
                     if (response.headers["set-cookie"]) {
-                        console.log('Storing NodeBB cookies for later use');
+                        console.log('Found NodeBB cookies for forwarding');
                         req.loginCookies = response.headers["set-cookie"];
                     }
 
@@ -85,8 +72,6 @@ const configurePassport = (app) => {
             }
         }
     ));
-
-    return passport;
 };
 
 module.exports = configurePassport;

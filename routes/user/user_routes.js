@@ -443,8 +443,9 @@ router.post("/new-user-email", asyncHandler(async (req, res) => {
     });
 }));
 
-// Login endpoint
-router.post("/login", loginLimiter, asyncHandler(async (req, res) => {
+// Login endpoint using Passport
+// Login endpoint using Passport with backward compatibility
+router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
     // Validate the request body
     const { isValid, errors } = validation.validateLogin(req.body);
 
@@ -452,96 +453,100 @@ router.post("/login", loginLimiter, asyncHandler(async (req, res) => {
         throw new ApiError("Validation failed", 400, errors);
     }
 
-    const { username, password } = req.body;
-
-    try {
-        // Use network retry for API call
-        const postWithRetry = withNetworkRetry(axios.post);
-
-        const response = await postWithRetry(
-            `${process.env.DOMAIN}/api/nodebb/api/v3/utilities/login`,
-            {
-                _uid: 1,
-                username: username,
-                password: password,
-            },
-            {
-                headers: {
-                    "X-CSRF-Token": req.body.csrf || "",
-                    Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
-                },
-            }
-        );
-
-        // Pass cookies through as-is for localhost compatibility
-        if (response.headers["set-cookie"]) {
-            res.setHeader("set-cookie", response.headers["set-cookie"]);
+    // Use Passport's authenticate method
+    passport.authenticate('local', (err, user, info, nodeBBCookies) => {
+        if (err) {
+            console.error("Authentication error:", err);
+            return next(new ApiError("Authentication error", 500));
         }
 
-        // Use database operation with retry for audit logging
-        const getCollection = withDatabaseRetry(mongodb.getCollection);
-        const collection = await getCollection("loginHistory");
-
-        const insertOne = withDatabaseRetry(collection.insertOne.bind(collection));
-        await insertOne({
-            username: username,
-            timestamp: new Date(),
-            success: true,
-            ip: req.ip // Assuming IP address is available via req.ip
-        });
-
-        // Return minimal necessary data
-        res.json({
-            success: response.data.success,
-            user: {
-                uid: response.data.user.uid,
-                username: response.data.user.username
-                // Omit other sensitive user data
-            }
-        });
-    } catch (error) {
-        // Audit failed login with retry
-        try {
-            const getCollection = withDatabaseRetry(mongodb.getCollection);
-            const collection = await getCollection("loginHistory");
-
-            const insertOne = withDatabaseRetry(collection.insertOne.bind(collection));
-            await insertOne({
-                username: username,
-                timestamp: new Date(),
-                success: false,
-                ip: req.ip
+        if (!user) {
+            // Audit failed login
+            auditLogin(req.body.username, false, req.ip).catch(err => {
+                console.error("Failed to audit login attempt:", err);
             });
-        } catch (auditError) {
-            console.error("Failed to audit login attempt:", auditError);
+
+            return res.status(401).json({
+                success: false,
+                message: info?.message || "Invalid username or password"
+            });
         }
 
-        // Special handling for axios errors
-        if (error.response) {
-            throw new ApiError(
-                "Login failed",
-                error.response.status || 500,
-                { message: "Invalid username or password" } // Generic message for security
-            );
-        }
+        // Log in the user
+        req.login(user, (loginErr) => {
+            if (loginErr) {
+                console.error("Session error:", loginErr);
+                return next(new ApiError("Login error", 500));
+            }
 
-        // Re-throw other errors to be caught by asyncHandler
-        throw error;
-    }
+            // Forward NodeBB cookies to client (backward compatibility)
+            if (req.loginCookies) {
+                res.setHeader("set-cookie", req.loginCookies);
+            }
+
+            // Audit successful login
+            auditLogin(user.username, true, req.ip).catch(err => {
+                console.error("Failed to audit login attempt:", err);
+            });
+
+            // Return success response
+            return res.json({
+                success: true,
+                user: {
+                    uid: user.uid,
+                    username: user.username
+                }
+            });
+        });
+    })(req, res, next);
 }));
 
-// Add logout endpoint
+// Helper function for audit logging
+async function auditLogin(username, success, ip) {
+    const getCollection = withDatabaseRetry(mongodb.getCollection);
+    const collection = await getCollection("loginHistory");
+
+    const insertOne = withDatabaseRetry(collection.insertOne.bind(collection));
+    await insertOne({
+        username: username,
+        timestamp: new Date(),
+        success: success,
+        ip: ip
+    });
+}
+
+/// Logout endpoint using Passport
+// Logout endpoint with Passport
 router.post("/logout", asyncHandler(async (req, res) => {
     try {
-        // Clear authentication cookies
-        res.clearCookie('connect.sid');
-        res.clearCookie('express.sid');
-        // Add any other cookies your auth system might set
+        // First, check if user is authenticated
+        if (req.isAuthenticated()) {
+            // Use Passport's logout method to clear the session
+            req.logout(function(err) {
+                if (err) {
+                    console.error("Passport logout error:", err);
+                    throw new ApiError("Logout failed", 500);
+                }
+            });
+        }
 
-        res.status(200).json({ success: true, message: "Logged out successfully" });
+        // Destroy the session regardless of authentication state
+        if (req.session) {
+            req.session.destroy();
+        }
+
+        // Clear authentication cookies from client
+        res.clearCookie('express.sid');
+        res.clearCookie('connect.sid');
+
+        res.status(200).json({
+            success: true,
+            message: "Logged out successfully from the application"
+        });
     } catch (error) {
+        console.error("Logout error:", error);
         throw new ApiError("Logout failed", 500);
     }
-}));
+}))
 
 module.exports = router;
