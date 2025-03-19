@@ -1,4 +1,5 @@
 const express = require("express");
+const configurePassport = require('./middleware/passport');
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
 const { google } = require("googleapis");
@@ -31,7 +32,6 @@ app.set('trust proxy', 1);
 app.use(express.json());
 app.use(sanitizeRequestBody); // Add this back
 
-// MongoDB connection and session setup
 (async function setupMongo() {
   try {
     // Import the mongodb client module correctly
@@ -39,6 +39,7 @@ app.use(sanitizeRequestBody); // Add this back
     await mongoClient.connect();
     console.log('MongoDB connected successfully');
 
+    // Configure session store with the proper client format
     const sessionStore = MongoStore.create({
       client: await mongoClient.connect(),
       collectionName: "sessions",
@@ -53,18 +54,18 @@ app.use(sanitizeRequestBody); // Add this back
           key: "express.sid",
           resave: false,
           saveUninitialized: false,
+          cookie: {
+            secure: process.env.NODE_ENV === 'production', // Only use secure in production
+            sameSite: 'lax', // Helps with CORS issues
+            maxAge: 1000 * 60 * 60 * 24 // 24 hours
+          }
         })
     );
 
-    // Add a health check endpoint
-    app.get('/health', async (req, res) => {
-      const mongoStatus = await mongoClient.ping();
-      res.status(200).json({
-        status: 'ok',
-        mongo: mongoStatus,
-        timestamp: new Date().toISOString()
-      });
-    });
+    // Set up Passport after the session is configured
+    app.locals.passport = configurePassport(app); // Make passport available to routes
+
+
 
   } catch (error) {
     console.error('Failed to connect to MongoDB:', error);
@@ -110,6 +111,7 @@ app.use(
 
 // Signup Routes
 const user_routes = require('./routes/user/user_routes.js');
+const {ping} = require("./third_party/mongodb");
 app.use('/user/', user_routes);
 
 let transporter = nodemailer.createTransport({
@@ -120,6 +122,29 @@ let transporter = nodemailer.createTransport({
     user: process.env.BREVO_SMTP_LOGIN,
     pass: process.env.BREVO_SMTP_PASSWORD,
   },
+});
+
+// Add a health check endpoint
+app.get('/health', async (req, res) => {
+  const mongoStatus = await ping();
+  res.status(200).json({
+    status: 'ok',
+    mongo: mongoStatus,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Add a session debug endpoint
+app.get('/session-debug', (req, res) => {
+  res.json({
+    sessionExists: !!req.session,
+    sessionID: req.sessionID || 'No session ID',
+    hasPassport: req.session && !!req.session.passport,
+    isAuthenticated: req.isAuthenticated && req.isAuthenticated() || false,
+    user: req.user || 'No user',
+    sessionData: req.session,
+    cookies: req.headers.cookie
+  });
 });
 
 app.post("/append", validateSession, async (req, res) => {
