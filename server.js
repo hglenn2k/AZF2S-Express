@@ -167,8 +167,14 @@ async function startServer() {
           getSessionHealth(req)
         ]);
 
-        res.status(200).json({
-          status: 'ok',
+        const hasErrors = !mongoStatus ||
+            nodeBBStatus.status === 'error' ||
+            sessionStatus.status === 'error';
+
+        const httpStatus = hasErrors ? 503 : 200;
+
+        res.status(httpStatus).json({
+          status: hasErrors ? 'error' : 'ok',
           services: {
             mongodb: mongoStatus,
             nodebb: nodeBBStatus,
