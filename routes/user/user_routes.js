@@ -1,5 +1,6 @@
 // user_routes.js
 const express = require('express');
+const passport = require('passport');
 const { validateSession }  = require('../../middleware/validateSession');
 const router = express.Router();
 const axios = require('axios');

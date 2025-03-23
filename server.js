@@ -47,6 +47,7 @@ const setupLegacyRoutes = require("./routes/legacy_routes");
 const app = express();
 const PORT = process.env.PORT || 3001;
 const mongoClient = require('./third_party/mongodb');
+const nodeBB = require('./third_party/nodebb');
 
 // Unit test middleware
 console.log('Validating critical modules before startup...');
@@ -157,28 +158,122 @@ async function startServer() {
       mongoClient: mongoClient
     });
 
-    // Add a health check endpoint
+    // Aggregate health check endpoint
     app.get('/health', async (req, res) => {
-      const mongoStatus = await mongoClient.ping();
-      res.status(200).json({
-        status: 'ok',
-        mongo: mongoStatus,
-        timestamp: new Date().toISOString()
-      });
+      try {
+        const [mongoStatus, nodeBBStatus, sessionStatus] = await Promise.all([
+          mongoClient.ping(),
+          nodeBB.verifyNodeBBHealth(),
+          getSessionHealth(req)
+        ]);
+
+        res.status(200).json({
+          status: 'ok',
+          services: {
+            mongodb: mongoStatus,
+            nodebb: nodeBBStatus,
+            session: sessionStatus
+          },
+          environment: {
+            node_env: process.env.NODE_ENV,
+            domain: process.env.DOMAIN
+          },
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        res.status(503).json({
+          status: 'error',
+          error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
     });
 
-    // Add a session debug endpoint
-    app.get('/session-debug', (req, res) => {
-      res.json({
-        sessionExists: !!req.session,
-        sessionID: req.sessionID || 'No session ID',
-        hasPassport: req.session && !!req.session.passport,
-        isAuthenticated: req.isAuthenticated && req.isAuthenticated() || false,
-        user: req.user || 'No user',
-        sessionData: req.session,
-        cookies: req.headers.cookie
-      });
+    // MongoDB health check
+    app.get('/health/mongodb', async (req, res) => {
+      try {
+        const status = await mongoClient.ping();
+        res.status(200).json({
+          service: 'mongodb',
+          status: status ? 'ok' : 'error',
+          details: {
+            connected: !!mongoClient.client,
+            database: process.env.MONGO_ENV || 'DEV'
+          },
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        res.status(503).json({
+          service: 'mongodb',
+          status: 'error',
+          error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
     });
+
+    // NodeBB health check
+    app.get('/health/nodebb', async (req, res) => {
+      try {
+        const status = await nodeBB.verifyNodeBBHealth();
+        res.status(200).json({
+          service: 'nodebb',
+          ...status
+        });
+      } catch (error) {
+        res.status(503).json({
+          service: 'nodebb',
+          status: 'error',
+          error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    // Session health check
+    app.get('/health/session', (req, res) => {
+      try {
+        const status = getSessionHealth(req);
+        res.status(200).json({
+          service: 'session',
+          ...status
+        });
+      } catch (error) {
+        res.status(503).json({
+          service: 'session',
+          status: 'error',
+          error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    function getSessionHealth(req) {
+      return {
+        status: 'ok',
+        details: {
+          session: {
+            exists: !!req.session,
+            id: req.sessionID || null,
+            cookie: req.session?.cookie ? {
+              maxAge: req.session.cookie.maxAge,
+              expires: req.session.cookie.expires,
+              secure: req.session.cookie.secure,
+              httpOnly: req.session.cookie.httpOnly
+            } : null
+          },
+          authentication: {
+            hasPassport: req.session && !!req.session.passport,
+            isAuthenticated: req.isAuthenticated && req.isAuthenticated() || false
+          },
+          headers: {
+            hasCookie: !!req.headers.cookie,
+            hasCSRF: !!req.headers['x-csrf-token']
+          }
+        },
+        timestamp: new Date().toISOString()
+      };
+    }
 
     // Error middlewares should be last
     app.use(notFoundMiddleware);
