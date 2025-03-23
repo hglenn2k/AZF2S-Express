@@ -193,7 +193,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
         console.log(req.body);
         try {
             await axios.put(
-                `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/users/` + userId + "/settings",
+                `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/users/` + userId + "/settings",
                 {
                     settings: {
                         showemail: req.body.showemail.toString(),
@@ -214,7 +214,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
     app.get("/notifications", validateSession, async (req, res) => {
         try {
             const response = await axios.get(
-                `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/notifications`,
+                `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/notifications`,
                 {
                     headers: {
                         Cookie: req.headers.cookie,
@@ -578,7 +578,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
         const userKey = `user:${userId}`;
 
         const configResponse = await axios.get(
-            `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
+            `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
             {
                 headers: {
                     "Content-Type": "application/json",
@@ -595,7 +595,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
 
         const groupAddPromises = groupSlugs.map((groupSlug) => {
             return fetch(
-                `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
+                `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
                 {
                     method: "PUT",
                     headers: {
@@ -656,7 +656,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
         const userKey = `user:${userId}`;
 
         const configResponse = await axios.get(
-            `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
+            `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/config`,
             {
                 headers: {
                     "Content-Type": "application/json",
@@ -673,7 +673,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
 
         const groupAddPromises = groupSlugs.map((groupSlug) => {
             return fetch(
-                `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
+                `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/v3/groups/${groupSlug}/membership/${userId}`,
                 {
                     method: "DELETE",
                     headers: {
@@ -1196,7 +1196,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
     app.get("/group-colors", async (req, res) => {
         try {
             const response = await axios.get(
-                `${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/groups`,
+                `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}/api/groups`,
                 {
                     withCredentials: false,
                 }

@@ -181,6 +181,7 @@ async function startServer() {
             session: sessionStatus
           },
           environment: {
+            protocol: process.env.PROTOCOL,
             node_env: process.env.NODE_ENV,
             domain: process.env.DOMAIN
           },

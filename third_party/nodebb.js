@@ -14,7 +14,7 @@ const nodeBB = {
         try {
             // First get the CSRF token from /api/config
             const configResponse = await axios.get(
-                `${process.env.DOMAIN}/api/nodebb/api/config`,
+                `${process.env.PROTOCOL}${process.env.DOMAIN}/api/nodebb/api/config`,
                 { withCredentials: true }
             );
 
@@ -25,7 +25,7 @@ const nodeBB = {
 
             // Now login to NodeBB with the CSRF token
             const loginResponse = await axios.post(
-                `${process.env.DOMAIN}/api/nodebb/api/v3/utilities/login`,
+                `${process.env.PROTOCOL}${process.env.DOMAIN}/api/nodebb/api/v3/utilities/login`,
                 {
                     username: username,
                     password: password,
@@ -74,7 +74,7 @@ const nodeBB = {
     async verifyNodeBBHealth() {
         try {
             const response = await axios.get(
-                `${process.env.DOMAIN}/api/nodebb/api/config`,
+                `${process.env.PROTOCOL}${process.env.DOMAIN}/api/nodebb/api/config`,
                 { timeout: 5000 }
             );
             return {
