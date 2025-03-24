@@ -7,7 +7,9 @@ const configurePassport = () => {
         done(null, {
             uid: user.uid,
             username: user.username,
-            nodeBBCsrfToken: user.nodeBBCsrfToken
+            csrfToken: user.csrfToken,
+            emailConfirmed: user.emailConfirmed,
+            isAdmin: user.isAdmin,
         });
     });
 
