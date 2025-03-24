@@ -47,7 +47,7 @@ const setupLegacyRoutes = require("./routes/legacy_routes");
 const app = express();
 const PORT = process.env.PORT || 3001;
 const mongoClient = require('./third_party/mongodb');
-const nodeBB = require('./third_party/nodebb');
+const { nodeBB } = require('./third_party/nodebb');
 
 // Unit test middleware
 console.log('Validating critical modules before startup...');
