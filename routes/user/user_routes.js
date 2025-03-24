@@ -21,7 +21,6 @@ const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
 });
 
 router.get("/", validateSession, asyncHandler(async (req, res) => {
-    // Check if user is authenticated
     if (!req.isAuthenticated() && !req.uid) {
         throw new ApiError("Authentication required", 401);
     }
@@ -33,9 +32,7 @@ router.get("/", validateSession, asyncHandler(async (req, res) => {
     }
 
     try {
-        // Use network retry for NodeBB API request
         const getWithRetry = withNetworkRetry(axios.get);
-
         const apiConfig = {
             headers: {
                 Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
@@ -52,10 +49,30 @@ router.get("/", validateSession, asyncHandler(async (req, res) => {
             return res.status(404).json({ error: "User not found" });
         }
 
+        // Check if admin status needs to be updated
+        const isAdmin = response.data.groupTitleArray?.includes("administrators") || false;
+
+        if (req.user && req.user.isAdmin !== isAdmin) {
+            // Only update what's needed
+            req.user.isAdmin = isAdmin;
+            req.login(req.user, (err) => {
+                if (err) {
+                    console.error("Error updating session:", err);
+                }
+            });
+        }
+
+        // Forward NodeBB cookies to client if they exist
+        if (response.headers['set-cookie']) {
+            response.headers['set-cookie'].forEach(cookie => {
+                res.append('Set-Cookie', cookie);
+            });
+        }
+
         // Return all fields from NodeBB's response
         res.status(200).json(response.data);
     } catch (error) {
-        // Special handling for axios errors
+        // Error handling as before
         if (error.response) {
             console.error("NodeBB API error:", error.response.status, error.response.data);
 
@@ -456,11 +473,6 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
         }
 
         if (!user) {
-            // Audit failed login
-            auditLogin(req.body.username, false, req.ip).catch(err => {
-                console.error("Failed to audit login attempt:", err);
-            });
-
             return res.status(401).json({
                 success: false,
                 message: info?.message || "Invalid username or password"
@@ -493,12 +505,8 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
                 user: {
                     uid: user.uid,
                     username: user.username,
-                    userslug: user.userslug || user.username,
-                    picture: user.picture || null,
-                    "email:confirmed": user["email:confirmed"] || 1,
-                    fullname: user.fullname || "",
-                    displayname: user.displayname || user.username,
                     email: user.email || "",
+                    "email:confirmed": user["email:confirmed"] || 0,
                     groupTitle: user.groupTitle || "",
                     groupTitleArray: user.groupTitleArray || [],
                 }

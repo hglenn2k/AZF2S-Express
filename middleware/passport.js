@@ -9,7 +9,7 @@ const configurePassport = () => {
             username: user.username,
             csrfToken: user.csrfToken,
             emailConfirmed: user.emailConfirmed,
-            isAdmin: user.isAdmin,
+            isAdmin: user.isAdmin
         });
     });
 
@@ -25,24 +25,24 @@ const configurePassport = () => {
         },
         async (req, username, password, done) => {
             try {
-                // Initialize NodeBB session first
+                // NodeBB session already fetches user data
                 const nodeBBSession = await nodeBB.initializeNodeBBSession(username, password);
 
                 if (!nodeBBSession.success) {
                     return done(null, false, { message: 'NodeBB authentication failed' });
                 }
 
-                // Store NodeBB cookies and CSRF token in the request object
+                // Store NodeBB cookies in the request object
                 req.loginCookies = nodeBBSession.cookies;
-                req.nodeBBCsrfToken = nodeBBSession.csrfToken;
 
-                // Create user object with NodeBB data
+                // Create minimal user object with the data from NodeBB
+                const userData = nodeBBSession.userData;
                 const user = {
-                    uid: nodeBBSession.userData.uid,
-                    username: nodeBBSession.userData.username,
-                    csrfToken: nodeBBSession.csrfToken, // Store for future requests,
-                    emailConfirmed: nodeBBSession.userData['email:confirmed'],
-                    isAdmin: nodeBBSession.userData.groupTitleArray?.includes("administrators") || false
+                    uid: userData.uid,
+                    username: userData.username,
+                    csrfToken: nodeBBSession.csrfToken,
+                    emailConfirmed: userData['email:confirmed'] || 0,
+                    isAdmin: userData.groupTitleArray?.includes("administrators") || false
                 };
 
                 return done(null, user);

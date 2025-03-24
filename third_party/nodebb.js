@@ -66,7 +66,55 @@ const nodeBB = {
                 );
             }
 
-            const userData = loginResponse.data.response;
+            // User data fetching with improved error handling
+            console.log("Getting more user data for passport cookie...");
+            let userData = null;
+
+            try {
+                const getUserResponse = await axios.post(
+                    `${getNodeBBServiceUrl()}/api/user/username/${username}`,
+                    {
+                        username: username
+                    },
+                    {
+                        headers: {
+                            'X-CSRF-Token': csrfToken,
+                            Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
+                            Cookie: configResponse.headers['set-cookie']?.join('; ')
+                        },
+                        withCredentials: true
+                    }
+                );
+
+                console.log("GetUser Response Status:", getUserResponse.status);
+                console.log("GetUser Response Headers:", JSON.stringify(getUserResponse.headers, null, 2));
+
+                if (!getUserResponse.data || !getUserResponse.data.response) {
+                    console.error("GetUser API returned unexpected data format:", JSON.stringify(getUserResponse.data, null, 2));
+                    throw new Error("Invalid user data response format");
+                }
+
+                userData = getUserResponse.data.response;
+                console.log("User data successfully retrieved with admin status:", userData.groupTitleArray?.includes("administrators"));
+            } catch (userDataError) {
+                console.error("Failed to fetch additional user data:", userDataError.message);
+                console.error("Error details:", userDataError.response?.data || "No response data");
+                console.error("Error status:", userDataError.response?.status || "No status code");
+
+                // Fall back to basic user data from login response if possible
+                if (loginResponse.data && loginResponse.data.user) {
+                    console.log("Falling back to basic user data from login response");
+                    userData = loginResponse.data.user;
+                    console.warn("Admin status may not be accurate with fallback data");
+                } else {
+                    // Cannot proceed without user data
+                    throw new NodeBBError(
+                        'Failed to retrieve user data after successful login',
+                        userDataError.response?.status || 500,
+                        userDataError.response?.data || { message: userDataError.message }
+                    );
+                }
+            }
 
             return {
                 success: true,
