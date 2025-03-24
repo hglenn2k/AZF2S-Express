@@ -505,7 +505,9 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
                     "email:confirmed": user["email:confirmed"] || 1,
                     fullname: user.fullname || "",
                     displayname: user.displayname || user.username,
-                    email: user.email || ""
+                    email: user.email || "",
+                    groupTitle: user.groupTitle || "",
+                    groupTitleArray: user.groupTitleArray || [],
                 }
             });
         });
