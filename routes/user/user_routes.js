@@ -447,7 +447,6 @@ router.post("/new-user-email", asyncHandler(async (req, res) => {
     });
 }));
 
-// Login endpoint using Passport
 router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
     // Validate the request body
     const { isValid, errors } = validation.validateLogin(req.body);
@@ -496,18 +495,17 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
                 console.warn("No NodeBB cookies found to forward");
             }
 
-            // Return success response with debug info
             return res.json({
                 success: true,
                 user: {
                     uid: user.uid,
                     username: user.username,
-                    // Include the full user data for debugging
-                    fullData: user
-                },
-                debug: {
-                    hasCookies: !!req.loginCookies,
-                    cookieCount: req.loginCookies ? req.loginCookies.length : 0
+                    userslug: user.userslug || user.username,
+                    picture: user.picture || null,
+                    "email:confirmed": user["email:confirmed"] || 1,
+                    fullname: user.fullname || "",
+                    displayname: user.displayname || user.username,
+                    email: user.email || ""
                 }
             });
         });
