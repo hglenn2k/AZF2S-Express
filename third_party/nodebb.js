@@ -16,18 +16,28 @@ function getNodeBBServiceUrl() {
 const nodeBB = {
     async initializeNodeBBSession(username, password) {
         try {
+            console.log("Starting NodeBB session initialization");
+
             // First get the CSRF token from /api/config
             const configResponse = await axios.get(
                 `${getNodeBBServiceUrl()}/api/config`,
                 { withCredentials: true }
             );
 
+            console.log("Config Response Headers:", JSON.stringify(configResponse.headers, null, 2));
+            console.log("Config Cookies:", configResponse.headers['set-cookie']);
+
             const csrfToken = configResponse.data?.csrf_token;
             if (!csrfToken) {
+                consolg.log("No csrf token found");
                 throw new NodeBBError('CSRF token not found in NodeBB response', 502);
+            }
+            else {
+                console.log("CSRF Token:", csrfToken);
             }
 
             // Now login to NodeBB with the CSRF token
+            console.log(`Logging into NodeBB with Bearer ${process.env.NODEBB_BEARER_TOKEN}`);
             const loginResponse = await axios.post(
                 `${getNodeBBServiceUrl()}/api/v3/utilities/login`,
                 {
@@ -37,11 +47,16 @@ const nodeBB = {
                 {
                     headers: {
                         'X-CSRF-Token': csrfToken,
-                        Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
+                        Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
+                        Cookie: configResponse.headers['set-cookie']?.join('; ')
                     },
                     withCredentials: true
                 }
             );
+
+            console.log("Login Response Headers:", JSON.stringify(loginResponse.headers, null, 2));
+            console.log("Login Cookies:", loginResponse.headers['set-cookie']);
+            console.log("Login Response Data:", JSON.stringify(loginResponse.data, null, 2));
 
             if (!loginResponse.data?.success) {
                 throw new NodeBBError(

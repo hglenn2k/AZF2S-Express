@@ -237,6 +237,26 @@ async function startServer() {
       }
     });
 
+    app.get("/health/cookies", (req, res) => {
+      // Output all cookies
+      const cookies = req.headers.cookie ?
+          req.headers.cookie.split(';').map(cookie => cookie.trim()) :
+          [];
+
+      // Output session info
+      const sessionInfo = {
+        isAuthenticated: req.isAuthenticated(),
+        sessionID: req.sessionID,
+        user: req.user || null,
+        cookies: cookies,
+        headers: {
+          cookie: req.headers.cookie
+        }
+      };
+
+      res.json(sessionInfo);
+    });
+
     // Session health check
     app.get('/health/session', (req, res) => {
       try {

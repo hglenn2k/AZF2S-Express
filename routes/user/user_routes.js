@@ -445,7 +445,6 @@ router.post("/new-user-email", asyncHandler(async (req, res) => {
 }));
 
 // Login endpoint using Passport
-// Login endpoint using Passport with backward compatibility
 router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
     // Validate the request body
     const { isValid, errors } = validation.validateLogin(req.body);
@@ -480,44 +479,38 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
                 return next(new ApiError("Login error", 500));
             }
 
-            // Forward NodeBB cookies to client (backward compatibility)
+            // Forward NodeBB cookies to client
             if (req.loginCookies) {
-                res.setHeader("set-cookie", req.loginCookies);
+                console.log("Forwarding NodeBB cookies:", req.loginCookies);
+
+                // Set each cookie individually with proper options
+                req.loginCookies.forEach(cookie => {
+                    // The cookie string has name=value; path=/; etc.
+                    // We just forward it directly
+                    res.append('Set-Cookie', cookie);
+                });
+            } else {
+                console.warn("No NodeBB cookies found to forward");
             }
 
-            // Audit successful login
-            auditLogin(user.username, true, req.ip).catch(err => {
-                console.error("Failed to audit login attempt:", err);
-            });
-
-            // Return success response
+            // Return success response with debug info
             return res.json({
                 success: true,
                 user: {
                     uid: user.uid,
-                    username: user.username
+                    username: user.username,
+                    // Include the full user data for debugging
+                    fullData: user
+                },
+                debug: {
+                    hasCookies: !!req.loginCookies,
+                    cookieCount: req.loginCookies ? req.loginCookies.length : 0
                 }
             });
         });
     })(req, res, next);
 }));
 
-// Helper function for audit logging
-async function auditLogin(username, success, ip) {
-    const getCollection = withDatabaseRetry(mongodb.getCollection);
-    const collection = await getCollection("loginHistory");
-
-    const insertOne = withDatabaseRetry(collection.insertOne.bind(collection));
-    await insertOne({
-        username: username,
-        timestamp: new Date(),
-        success: success,
-        ip: ip
-    });
-}
-
-/// Logout endpoint using Passport
-// Logout endpoint with Passport
 router.post("/logout", asyncHandler(async (req, res) => {
     try {
         // First, check if user is authenticated
