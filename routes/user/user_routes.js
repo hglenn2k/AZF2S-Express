@@ -13,6 +13,7 @@ const {
     withNetworkRetry,
     configureLimiters
 } = require('../../middleware/middleware');
+const {getNodeBBServiceUrl} = require("../../third_party/nodebb");
 
 // Configure rate limiters
 const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
