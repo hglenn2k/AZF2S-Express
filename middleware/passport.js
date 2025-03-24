@@ -1,6 +1,6 @@
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
-const nodeBB = require('../third_party/nodebb');
+const { nodeBB } = require('../third_party/nodebb');
 
 const configurePassport = () => {
     passport.serializeUser((user, done) => {
