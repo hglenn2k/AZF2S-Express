@@ -94,8 +94,8 @@ const nodeBB = {
                     throw new Error("Invalid user data response format");
                 }
 
-                userData = getUserResponse.data.response;
-                console.log("User data successfully retrieved with admin status:", userData.groupTitleArray?.includes("administrators"));
+                userData = getUserResponse.data;
+                console.log("User data successfully retrieved with admin status: ", userData.groupTitleArray?.includes("administrators"));
             } catch (userDataError) {
                 console.error("Failed to fetch additional user data:", userDataError.message);
                 console.error("Error details:", userDataError.response?.data || "No response data");
