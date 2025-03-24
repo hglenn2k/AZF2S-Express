@@ -38,7 +38,9 @@ const configurePassport = () => {
                 const user = {
                     uid: nodeBBSession.userData.uid,
                     username: nodeBBSession.userData.username,
-                    nodeBBCsrfToken: nodeBBSession.csrfToken // Store for future requests
+                    csrfToken: nodeBBSession.csrfToken, // Store for future requests,
+                    emailConfirmed: nodeBBSession.userData['email:confirmed'],
+                    isAdmin: nodeBBSession.userData.groupTitleArray?.includes("administrators") || false
                 };
 
                 return done(null, user);

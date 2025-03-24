@@ -22,63 +22,56 @@ const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
 
 router.get("/", validateSession, asyncHandler(async (req, res) => {
     // Check if user is authenticated
-    const userId = req.uid;
-
-    if (!userId) {
+    if (!req.isAuthenticated() && !req.uid) {
         throw new ApiError("Authentication required", 401);
     }
 
-    const userKey = `user:${userId}`;
+    const userId = req.uid || req.user?.uid;
 
-    // Use database operation with retry
-    const getCollection = withDatabaseRetry(mongodb.getCollection);
-
-    // First verify database connection is alive
-    let collection;
-    try {
-        collection = await getCollection("objects");
-
-        // Perform a simple ping query to verify the database is working
-        const findOne = withDatabaseRetry(collection.findOne.bind(collection));
-        await findOne({ _id: "connectionTest" }, { projection: { _id: 1 }, timeout: 2000 });
-    } catch (dbError) {
-        console.error("Database connection error:", dbError);
-        throw new ApiError("Database unavailable", 503, {
-            message: "Unable to fetch user data. Please try again later."
-        });
+    if (!userId) {
+        throw new ApiError("User ID required", 400);
     }
 
-    // Now proceed with the user lookup using retry for database operation
     try {
-        const findOne = withDatabaseRetry(collection.findOne.bind(collection));
-        const user = await findOne({ _key: userKey });
+        // Use network retry for NodeBB API request
+        const getWithRetry = withNetworkRetry(axios.get);
 
-        // Explicitly check to make sure we got a valid response
-        if (user === undefined) {
-            throw new Error("Invalid database response");
+        const apiConfig = {
+            headers: {
+                Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
+                "X-CSRF-Token": req.user?.csrfToken || ""
+            },
+        };
+
+        const response = await getWithRetry(
+            `${getNodeBBServiceUrl()}/api/user/uid/${userId}`,
+            apiConfig
+        );
+
+        if (!response.data) {
+            return res.status(404).json({ error: "User not found" });
         }
 
-        if (user) {
-            // Return only necessary user data (avoid exposing sensitive fields)
-            const userData = {
-                uid: userId,
-                username: user.username,
-                email: user.email,
-                fullname: user.fullname,
-                memberstatus: user.memberstatus,
-                receivenewsletter: user.receivenewsletter
-            };
+        // Return all fields from NodeBB's response
+        res.status(200).json(response.data);
+    } catch (error) {
+        // Special handling for axios errors
+        if (error.response) {
+            console.error("NodeBB API error:", error.response.status, error.response.data);
 
-            res.status(200).json(userData);
-        } else {
-            // Return 404 with a message instead of throwing
-            res.status(404).json({ error: "User not found" });
+            if (error.response.status === 404) {
+                return res.status(404).json({ error: "User not found" });
+            }
+
+            throw new ApiError(
+                "Failed to fetch user data",
+                error.response.status || 500,
+                { message: "Unable to fetch user data. Please try again later." }
+            );
         }
-    } catch (queryError) {
-        console.error("Error querying user data:", queryError);
-        // Return error instead of throwing
-        res.status(503).json({
-            error: "Database query failed",
+
+        console.error("Error fetching user data:", error);
+        throw new ApiError("Service unavailable", 503, {
             message: "Unable to fetch user data. Please try again later."
         });
     }
