@@ -71,7 +71,7 @@ const nodeBB = {
             let userData = null;
 
             try {
-                const getUserResponse = await axios.post(
+                const getUserResponse = await axios.get(
                     `${getNodeBBServiceUrl()}/api/user/username/${username}`,
                     {
                         username: username
