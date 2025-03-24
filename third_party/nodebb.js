@@ -89,7 +89,7 @@ const nodeBB = {
                 console.log("GetUser Response Status:", getUserResponse.status);
                 console.log("GetUser Response Headers:", JSON.stringify(getUserResponse.headers, null, 2));
 
-                if (!getUserResponse.data || !getUserResponse.data.response) {
+                if (!getUserResponse.data || !getUserResponse.data.uid) {
                     console.error("GetUser API returned unexpected data format:", JSON.stringify(getUserResponse.data, null, 2));
                     throw new Error("Invalid user data response format");
                 }
