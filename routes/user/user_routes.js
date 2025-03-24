@@ -226,7 +226,7 @@ router.post("/sign-up", signupLimiter, asyncHandler(async (req, res) => {
         const postWithRetry = withNetworkRetry(axios.post);
 
         const response = await postWithRetry(
-            `${process.env.PROTOCOL}${process.env.DOMAIN}/api/nodebb/api/v3/users/`,
+            `${getNodeBBServiceUrl()}/api/v3/users/`,
             { _uid, username, password, email },
             apiConfig
         );

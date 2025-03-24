@@ -9,12 +9,16 @@ class NodeBBError extends Error {
     }
 }
 
+function getNodeBBServiceUrl() {
+    return process.env.NODEBB_SERVICE_URL || `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}`;
+}
+
 const nodeBB = {
     async initializeNodeBBSession(username, password) {
         try {
             // First get the CSRF token from /api/config
             const configResponse = await axios.get(
-                `${process.env.PROTOCOL}${process.env.DOMAIN}/api/nodebb/api/config`,
+                `${getNodeBBServiceUrl()}/api/config`,
                 { withCredentials: true }
             );
 
@@ -25,7 +29,7 @@ const nodeBB = {
 
             // Now login to NodeBB with the CSRF token
             const loginResponse = await axios.post(
-                `${process.env.PROTOCOL}${process.env.DOMAIN}/api/nodebb/api/v3/utilities/login`,
+                `${getNodeBBServiceUrl()}/api/v3/utilities/login`,
                 {
                     username: username,
                     password: password,
@@ -74,7 +78,7 @@ const nodeBB = {
     async verifyNodeBBHealth() {
         try {
             const response = await axios.get(
-                `${process.env.PROTOCOL}${process.env.DOMAIN}/api/nodebb/api/config`,
+                `${getNodeBBServiceUrl()}/api/config`,
                 { timeout: 5000 }
             );
             return {
@@ -92,4 +96,7 @@ const nodeBB = {
     }
 };
 
-module.exports = nodeBB;
+module.exports = {
+    nodeBB,
+    getNodeBBServiceUrl
+};
