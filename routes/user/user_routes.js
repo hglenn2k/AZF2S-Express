@@ -20,7 +20,7 @@ const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
     isProduction: process.env.NODE_ENV === 'production'
 });
 
-router.get("/", validateSession, (async (req, res) => {
+router.get("/", validateSession, asyncHandler(async (req, res) => {
     // Check if user is authenticated
     const userId = req.uid;
 
@@ -67,16 +67,18 @@ router.get("/", validateSession, (async (req, res) => {
                 fullname: user.fullname,
                 memberstatus: user.memberstatus,
                 receivenewsletter: user.receivenewsletter
-                // Add any other fields you want to expose
             };
 
             res.status(200).json(userData);
         } else {
-            throw new ApiError("User not found", 404);
+            // Return 404 with a message instead of throwing
+            res.status(404).json({ error: "User not found" });
         }
     } catch (queryError) {
         console.error("Error querying user data:", queryError);
-        throw new ApiError("Database query failed", 503, {
+        // Return error instead of throwing
+        res.status(503).json({
+            error: "Database query failed",
             message: "Unable to fetch user data. Please try again later."
         });
     }
