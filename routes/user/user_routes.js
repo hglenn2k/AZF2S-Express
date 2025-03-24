@@ -500,15 +500,18 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
                 console.warn("No NodeBB cookies found to forward");
             }
 
+            // Return the complete user object with all available fields
             return res.json({
                 success: true,
                 user: {
                     uid: user.uid,
                     username: user.username,
                     email: user.email || "",
-                    "email:confirmed": user["email:confirmed"] || 0,
+                    "email:confirmed": user["email:confirmed"] || user.emailConfirmed || 0,
                     groupTitle: user.groupTitle || "",
                     groupTitleArray: user.groupTitleArray || [],
+                    csrfToken: user.csrfToken,
+                    isAdmin: user.isAdmin
                 }
             });
         });
