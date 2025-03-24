@@ -29,7 +29,7 @@ const nodeBB = {
 
             const csrfToken = configResponse.data?.csrf_token;
             if (!csrfToken) {
-                consolg.log("No csrf token found");
+                console.log("No csrf token found");
                 throw new NodeBBError('CSRF token not found in NodeBB response', 502);
             }
             else {
@@ -58,7 +58,7 @@ const nodeBB = {
             console.log("Login Cookies:", loginResponse.headers['set-cookie']);
             console.log("Login Response Data:", JSON.stringify(loginResponse.data, null, 2));
 
-            if (!loginResponse.data?.success) {
+            if (!(loginResponse.data?.status?.code === "ok")) {
                 throw new NodeBBError(
                     'NodeBB authentication failed',
                     401,
@@ -66,11 +66,13 @@ const nodeBB = {
                 );
             }
 
+            const userData = loginResponse.data.response;
+
             return {
                 success: true,
                 cookies: loginResponse.headers['set-cookie'],
                 csrfToken: csrfToken,
-                userData: loginResponse.data.user
+                userData: userData
             };
         } catch (error) {
             if (error instanceof NodeBBError) {
