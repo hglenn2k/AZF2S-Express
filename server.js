@@ -262,7 +262,7 @@ async function startServer() {
     });
 
     // Session health check
-    app.get('/health/session', (req, res) => {
+    app.get('/health/express-session', (req, res) => {
       try {
         const status = getSessionHealth(req);
         res.status(200).json({
@@ -274,6 +274,45 @@ async function startServer() {
           service: 'session',
           status: 'error',
           error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    // Debug route for NodeBB session
+    app.get('/health/nodebb-session', (req, res) => {
+      try {
+        const sessionInfo = {
+          isAuthenticated: req.isAuthenticated(),
+          user: req.user ? {
+            uid: req.user.uid,
+            username: req.user.username,
+            hasCSRF: !!req.user.csrfToken,
+            isAdmin: req.user.isAdmin
+          } : null,
+          session: {
+            id: req.sessionID,
+            hasNodeBB: !!req.session.nodeBB,
+            hasCookies: !!req.session.nodeBB?.cookies,
+            cookiesCount: req.session.nodeBB?.cookies?.length || 0,
+            hasCSRF: !!req.session.nodeBB?.csrfToken
+          },
+          headers: {
+            hasCookie: !!req.headers.cookie,
+            cookie: req.headers.cookie
+          }
+        };
+
+        res.json({
+          status: 'ok',
+          sessionInfo,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        res.status(500).json({
+          status: 'error',
+          message: error.message,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
           timestamp: new Date().toISOString()
         });
       }

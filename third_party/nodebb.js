@@ -74,13 +74,10 @@ const nodeBB = {
                 const getUserResponse = await axios.get(
                     `${getNodeBBServiceUrl()}/api/user/username/${username}`,
                     {
-                        username: username
-                    },
-                    {
                         headers: {
                             'X-CSRF-Token': csrfToken,
                             Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
-                            Cookie: configResponse.headers['set-cookie']?.join('; ')
+                            Cookie: loginResponse.headers['set-cookie']?.join('; ') || configResponse.headers['set-cookie']?.join('; ')
                         },
                         withCredentials: true
                     }
@@ -116,10 +113,13 @@ const nodeBB = {
                 }
             }
 
+            // Store the CSRF token from the login response if available, otherwise use the one from config
+            const finalCsrfToken = loginResponse.data?.user?.csrfToken || csrfToken;
+
             return {
                 success: true,
                 cookies: loginResponse.headers['set-cookie'],
-                csrfToken: csrfToken,
+                csrfToken: finalCsrfToken,
                 userData: userData
             };
         } catch (error) {
@@ -164,28 +164,84 @@ const nodeBB = {
         const express = require('express');
         const router = express.Router();
 
-        // Generic NodeBB proxy that forwards all requests
-        router.all('*', async (req, res) => {
+        // Middleware to ensure NodeBB session exists
+        const ensureNodeBBSession = async (req, res, next) => {
+            // Skip for non-authenticated requests
+            if (!req.isAuthenticated()) {
+                return res.status(401).json({ error: 'Authentication required' });
+            }
+
             try {
-                if (!req.isAuthenticated()) {
-                    return res.status(401).json({ error: 'Authentication required' });
-                }
-
-                // Get NodeBB session info from the user's Express session
+                // Check if NodeBB session exists
                 if (!req.session.nodeBB?.cookies || !req.session.nodeBB?.csrfToken) {
-                    return res.status(401).json({ error: 'NodeBB session not found' });
+                    console.log('NodeBB session not found, attempting to refresh...');
+
+                    // We already have authenticated user data from passport
+                    if (req.user && req.user.username && req.user.csrfToken) {
+                        console.log('Found user data in passport session, setting NodeBB session');
+
+                        // Initialize nodeBB property if it doesn't exist
+                        if (!req.session.nodeBB) {
+                            req.session.nodeBB = {};
+                        }
+
+                        // Set CSRF token from passport user
+                        req.session.nodeBB.csrfToken = req.user.csrfToken;
+
+                        // If we still don't have cookies but have a CSRF token, we'll attempt a proxy
+                        // but log the issue for debugging
+                        if (!req.session.nodeBB.cookies) {
+                            console.warn('Missing NodeBB cookies in session, proxy may fail');
+                        }
+
+                        // Save the session
+                        await new Promise((resolve, reject) => {
+                            req.session.save(err => {
+                                if (err) reject(err);
+                                else resolve();
+                            });
+                        });
+
+                        return next();
+                    }
+
+                    return res.status(401).json({
+                        error: 'NodeBB session not found',
+                        details: 'Please log in again to refresh your session'
+                    });
                 }
 
-                // Get the path from the request (after /api/express/forward/nodebb)
+                next();
+            } catch (error) {
+                console.error('Error in ensureNodeBBSession middleware:', error);
+                res.status(500).json({
+                    error: 'Internal server error',
+                    message: 'Failed to validate NodeBB session'
+                });
+            }
+        };
+
+        // Generic NodeBB proxy that forwards all requests
+        router.all('*', ensureNodeBBSession, async (req, res) => {
+            try {
+                // Get the path from the request (after /forward/nodebb)
                 const nodeBBPath = req.path.replace(/^\/+/, '');
+                console.log(`Proxying request to NodeBB: ${nodeBBPath}`);
+
+                // Debug the session state
+                console.log('NodeBB Session State:', {
+                    hasCookies: !!req.session.nodeBB?.cookies,
+                    hasCSRF: !!req.session.nodeBB?.csrfToken,
+                    csrfToken: req.session.nodeBB?.csrfToken,
+                });
 
                 // Prepare the request config
                 const config = {
                     method: req.method,
                     url: `${getNodeBBServiceUrl()}/${nodeBBPath}`,
                     headers: {
-                        Cookie: req.session.nodeBB.cookies.join('; '),
-                        'X-CSRF-Token': req.session.nodeBB.csrfToken,
+                        Cookie: req.session.nodeBB?.cookies?.join('; ') || '',
+                        'X-CSRF-Token': req.session.nodeBB?.csrfToken || '',
                         Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
                     },
                     params: req.query,
@@ -193,8 +249,11 @@ const nodeBB = {
                     withCredentials: true
                 };
 
+                console.log('Proxy Request Headers:', JSON.stringify(config.headers, null, 2));
+
                 // Make the request to NodeBB
                 const response = await axios(config);
+                console.log(`Proxy response status: ${response.status}`);
 
                 // Forward any cookies from NodeBB to the client
                 if (response.headers['set-cookie']) {
@@ -204,6 +263,11 @@ const nodeBB = {
 
                     // Update NodeBB cookies in the session
                     req.session.nodeBB.cookies = response.headers['set-cookie'];
+
+                    // Save the updated session
+                    req.session.save(err => {
+                        if (err) console.error('Error saving session after updating cookies:', err);
+                    });
                 }
 
                 // Return the response
@@ -216,7 +280,8 @@ const nodeBB = {
                     return res.status(error.response.status).json({
                         error: 'NodeBB request failed',
                         status: error.response.status,
-                        message: error.message
+                        message: error.message,
+                        details: error.response.data
                     });
                 }
 
