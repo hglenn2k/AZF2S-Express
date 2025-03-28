@@ -32,6 +32,13 @@ const configurePassport = () => {
                     return done(null, false, { message: 'NodeBB authentication failed' });
                 }
 
+                // Store NodeBB cookies in the user's session
+                if (!req.session.nodeBB) {
+                    req.session.nodeBB = {};
+                }
+                req.session.nodeBB.cookies = nodeBBSession.cookies;
+                req.session.nodeBB.csrfToken = nodeBBSession.csrfToken;
+
                 // Store NodeBB cookies in the request object
                 req.loginCookies = nodeBBSession.cookies;
 

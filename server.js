@@ -147,6 +147,10 @@ async function startServer() {
     });
 
     // Register modern routes
+    // NodeBB proxy router - don't pass express as an argument
+    const nodeBBProxyRouter = nodeBB.createProxyRouter();
+    app.use('/api/express/forward/nodebb', nodeBBProxyRouter);
+
     const user_routes = require('./routes/user/user_routes.js');
     app.use('/user/', user_routes);
 

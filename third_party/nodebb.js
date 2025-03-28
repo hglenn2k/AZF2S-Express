@@ -158,6 +158,77 @@ const nodeBB = {
                 timestamp: new Date().toISOString()
             };
         }
+    },
+
+    createProxyRouter() {
+        const express = require('express');
+        const router = express.Router();
+
+        // Generic NodeBB proxy that forwards all requests
+        router.all('*', async (req, res) => {
+            try {
+                if (!req.isAuthenticated()) {
+                    return res.status(401).json({ error: 'Authentication required' });
+                }
+
+                // Get NodeBB session info from the user's Express session
+                if (!req.session.nodeBB?.cookies || !req.session.nodeBB?.csrfToken) {
+                    return res.status(401).json({ error: 'NodeBB session not found' });
+                }
+
+                // Get the path from the request (after /api/express/forward/nodebb)
+                const nodeBBPath = req.path.replace(/^\/+/, '');
+
+                // Prepare the request config
+                const config = {
+                    method: req.method,
+                    url: `${getNodeBBServiceUrl()}/${nodeBBPath}`,
+                    headers: {
+                        Cookie: req.session.nodeBB.cookies.join('; '),
+                        'X-CSRF-Token': req.session.nodeBB.csrfToken,
+                        Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
+                    },
+                    params: req.query,
+                    data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
+                    withCredentials: true
+                };
+
+                // Make the request to NodeBB
+                const response = await axios(config);
+
+                // Forward any cookies from NodeBB to the client
+                if (response.headers['set-cookie']) {
+                    response.headers['set-cookie'].forEach(cookie => {
+                        res.append('Set-Cookie', cookie);
+                    });
+
+                    // Update NodeBB cookies in the session
+                    req.session.nodeBB.cookies = response.headers['set-cookie'];
+                }
+
+                // Return the response
+                res.status(response.status).send(response.data);
+            } catch (error) {
+                console.error('NodeBB proxy error:', error.message);
+
+                // Forward NodeBB error responses if they exist
+                if (error.response) {
+                    return res.status(error.response.status).json({
+                        error: 'NodeBB request failed',
+                        status: error.response.status,
+                        message: error.message
+                    });
+                }
+
+                // Otherwise return a generic error
+                res.status(500).json({
+                    error: 'NodeBB proxy error',
+                    message: error.message
+                });
+            }
+        });
+
+        return router;
     }
 };
 
