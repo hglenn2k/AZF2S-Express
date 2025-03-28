@@ -337,8 +337,12 @@ async function startServer() {
             isAuthenticated: req.isAuthenticated && req.isAuthenticated() || false
           },
           headers: {
-            hasCookie: !!req.headers.cookie,
-            hasCSRF: !!req.headers['x-csrf-token']
+            hasCookie: !!req.headers.cookie
+          },
+          nodeBB: {
+            available: !!req.session?.nodeBB,
+            hasCookies: !!req.session?.nodeBB?.cookies,
+            hasCSRF: !!req.session?.nodeBB?.csrfToken
           }
         },
         timestamp: new Date().toISOString()
