@@ -94,25 +94,6 @@ router.get("/", validateSession, asyncHandler(async (req, res) => {
     }
 }));
 
-router.get('/current', (req, res) => {
-    if (req.isAuthenticated()) {
-        res.json({
-            success: true,
-            user: {
-                uid: req.user.uid,
-                username: req.user.username,
-                isAdmin: req.user.isAdmin || false,
-                emailConfirmed: req.user.emailConfirmed || 0
-            }
-        });
-    } else {
-        res.json({
-            success: false,
-            message: 'Not authenticated'
-        });
-    }
-});
-
 // Check if account is available
 router.post("/is-account-available", accountCheckLimiter, asyncHandler(async (req, res) => {
     // Validate the request body
