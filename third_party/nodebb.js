@@ -1,5 +1,9 @@
 const axios = require('axios');
 
+// Simple CSRF token cache
+let cachedCsrfToken = null;
+let tokenLastRefreshed = null;
+
 class NodeBBError extends Error {
     constructor(message, statusCode = 500, details = null) {
         super(message);
@@ -13,44 +17,79 @@ function getNodeBBServiceUrl() {
     return process.env.NODEBB_SERVICE_URL || `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}`;
 }
 
+// Create a custom Axios instance for NodeBB API requests
+const nodeBBAxios = axios.create({
+    baseURL: getNodeBBServiceUrl()
+});
+
+// Function to get CSRF token - kept separate to avoid circular dependency
+async function getCsrfToken() {
+    // Use cached token if available and less than 1 hour old
+    if (cachedCsrfToken && tokenLastRefreshed &&
+        (Date.now() - tokenLastRefreshed < 3600000)) {
+        console.log("Using cached CSRF token");
+        return cachedCsrfToken;
+    }
+
+    // Fetch new token - using regular axios to avoid interceptor loop
+    console.log("Fetching new CSRF token");
+    try {
+        const response = await axios.get(`${getNodeBBServiceUrl()}/api/config`);
+        if (response.data?.csrf_token) {
+            cachedCsrfToken = response.data.csrf_token;
+            tokenLastRefreshed = Date.now();
+            console.log("CSRF token refreshed");
+            return cachedCsrfToken;
+        }
+        throw new Error("No CSRF token in response");
+    } catch (error) {
+        console.error("Failed to fetch CSRF token:", error.message);
+        // Return cached token as fallback if available
+        if (cachedCsrfToken) return cachedCsrfToken;
+        throw error;
+    }
+}
+
+// Add interceptor to inject CSRF token and auth headers
+nodeBBAxios.interceptors.request.use(async (config) => {
+    try {
+        const token = await getCsrfToken();
+
+        // Add headers to the request
+        config.headers = {
+            ...config.headers,
+            'X-CSRF-Token': token,
+            'Authorization': `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
+        };
+
+        return config;
+    } catch (error) {
+        return Promise.reject(error);
+    }
+});
+
 const nodeBB = {
+    // Expose token management
+    getCsrfToken,
+
+    // Expose the Axios instance directly - now all HTTP methods are available
+    api: nodeBBAxios,
+
     async initializeNodeBBSession(username, password) {
         try {
             console.log("Starting NodeBB session initialization");
 
-            // First get the CSRF token from /api/config
-            const configResponse = await axios.get(
-                `${getNodeBBServiceUrl()}/api/config`,
-                { withCredentials: true }
-            );
-
-            console.log("Config Response Headers:", JSON.stringify(configResponse.headers, null, 2));
-            console.log("Config Cookies:", configResponse.headers['set-cookie']);
-
-            const csrfToken = configResponse.data?.csrf_token;
-            if (!csrfToken) {
-                console.log("No csrf token found");
-                throw new NodeBBError('CSRF token not found in NodeBB response', 502);
-            }
-            else {
-                console.log("CSRF Token:", csrfToken);
-            }
+            // First get the CSRF token
+            const csrfToken = await getCsrfToken();
+            console.log("Using CSRF Token:", csrfToken);
 
             // Now login to NodeBB with the CSRF token
             console.log(`Logging into NodeBB with Bearer ${process.env.NODEBB_BEARER_TOKEN}`);
-            const loginResponse = await axios.post(
-                `${getNodeBBServiceUrl()}/api/v3/utilities/login`,
+            const loginResponse = await this.api.post(
+                '/api/v3/utilities/login',
                 {
                     username: username,
                     password: password,
-                },
-                {
-                    headers: {
-                        'X-CSRF-Token': csrfToken,
-                        Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
-                        Cookie: configResponse.headers['set-cookie']?.join('; ')
-                    },
-                    withCredentials: true
                 }
             );
 
@@ -71,16 +110,8 @@ const nodeBB = {
             let userData = null;
 
             try {
-                const getUserResponse = await axios.get(
-                    `${getNodeBBServiceUrl()}/api/user/username/${username}`,
-                    {
-                        headers: {
-                            'X-CSRF-Token': csrfToken,
-                            Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
-                            Cookie: loginResponse.headers['set-cookie']?.join('; ') || configResponse.headers['set-cookie']?.join('; ')
-                        },
-                        withCredentials: true
-                    }
+                const getUserResponse = await this.api.get(
+                    `/api/user/username/${username}`
                 );
 
                 console.log("GetUser Response Status:", getUserResponse.status);
@@ -116,6 +147,13 @@ const nodeBB = {
             // Store the CSRF token from the login response if available, otherwise use the one from config
             const finalCsrfToken = loginResponse.data?.user?.csrfToken || csrfToken;
 
+            // Update our cached token if we received a new one
+            if (finalCsrfToken !== csrfToken) {
+                cachedCsrfToken = finalCsrfToken;
+                tokenLastRefreshed = Date.now();
+                console.log("Updated cached CSRF token after login");
+            }
+
             return {
                 success: true,
                 cookies: loginResponse.headers['set-cookie'],
@@ -142,10 +180,8 @@ const nodeBB = {
 
     async verifyNodeBBHealth() {
         try {
-            const response = await axios.get(
-                `${getNodeBBServiceUrl()}/api/config`,
-                { timeout: 5000 }
-            );
+            const response = await this.api.get('/api/config', { timeout: 5000 });
+
             return {
                 status: 'ok',
                 version: response.data?.version || 'unknown',
@@ -235,13 +271,16 @@ const nodeBB = {
                     csrfToken: req.session.nodeBB?.csrfToken,
                 });
 
+                // Use cached CSRF token as fallback if session token is missing
+                const csrfToken = req.session.nodeBB?.csrfToken || cachedCsrfToken;
+
                 // Prepare the request config
                 const config = {
                     method: req.method,
                     url: `${getNodeBBServiceUrl()}/${nodeBBPath}`,
                     headers: {
                         Cookie: req.session.nodeBB?.cookies?.join('; ') || '',
-                        'X-CSRF-Token': req.session.nodeBB?.csrfToken || '',
+                        'X-CSRF-Token': csrfToken || '',
                         Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
                     },
                     params: req.query,
@@ -251,7 +290,7 @@ const nodeBB = {
 
                 console.log('Proxy Request Headers:', JSON.stringify(config.headers, null, 2));
 
-                // Make the request to NodeBB
+                // Make the request to NodeBB - using base axios to avoid interceptor
                 const response = await axios(config);
                 console.log(`Proxy response status: ${response.status}`);
 
@@ -296,6 +335,16 @@ const nodeBB = {
         return router;
     }
 };
+
+// Initialize token on module load
+(async function() {
+    try {
+        await getCsrfToken();
+        console.log("Initial CSRF token cached successfully");
+    } catch (error) {
+        console.error("Failed to initialize CSRF token:", error.message);
+    }
+})();
 
 module.exports = {
     nodeBB,

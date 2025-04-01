@@ -3,7 +3,6 @@ const express = require('express');
 const passport = require('passport');
 const { validateSession }  = require('../../middleware/validateSession');
 const router = express.Router();
-const axios = require('axios');
 const mongodb = require('../../third_party/mongodb');
 const validation = require('./user_validation');
 const {
@@ -13,7 +12,7 @@ const {
     withNetworkRetry,
     configureLimiters
 } = require('../../middleware/middleware');
-const {getNodeBBServiceUrl} = require("../../third_party/nodebb");
+const { nodeBB} = require("../../third_party/nodebb");
 
 // Configure rate limiters
 const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
@@ -32,18 +31,9 @@ router.get("/", validateSession, asyncHandler(async (req, res) => {
     }
 
     try {
-        const getWithRetry = withNetworkRetry(axios.get);
-        const apiConfig = {
-            headers: {
-                Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
-                "X-CSRF-Token": req.user?.csrfToken || ""
-            },
-        };
+        const getWithRetry = withNetworkRetry(nodeBB.api.get);
 
-        const response = await getWithRetry(
-            `${getNodeBBServiceUrl()}/api/user/uid/${userId}`,
-            apiConfig
-        );
+        const response = await getWithRetry(`/api/user/uid/${userId}`);
 
         if (!response.data) {
             return res.status(404).json({ error: "User not found" });
@@ -179,12 +169,6 @@ router.post("/sign-up", signupLimiter, asyncHandler(async (req, res) => {
 
     const { username, password, email } = req.body;
     const _uid = 1;
-    const apiConfig = {
-        headers: {
-            Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`,
-            "X-CSRF-Token": req.body.csrf || ""
-        },
-    };
 
     try {
         // Verify database connection before proceeding
@@ -235,13 +219,9 @@ router.post("/sign-up", signupLimiter, asyncHandler(async (req, res) => {
             });
         }
 
-        // Use network retry for making the NodeBB API request
-        const postWithRetry = withNetworkRetry(axios.post);
-
-        const response = await postWithRetry(
-            `${getNodeBBServiceUrl()}/api/v3/users/`,
-            { _uid, username, password, email },
-            apiConfig
+        const response = await nodeBB.api.post(
+            `/api/v3/users/`,
+            { _uid, username, password, email }
         );
 
         if (response.headers["set-cookie"]) {
