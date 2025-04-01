@@ -27,7 +27,7 @@ async function getCsrfToken() {
     // Use cached token if available and less than 1 hour old
     if (cachedCsrfToken && tokenLastRefreshed &&
         (Date.now() - tokenLastRefreshed < 3600000)) {
-        console.log("Using cached CSRF token");
+        console.log("Using cached CSRF token:", cachedCsrfToken);
         return cachedCsrfToken;
     }
 
@@ -38,7 +38,7 @@ async function getCsrfToken() {
         if (response.data?.csrf_token) {
             cachedCsrfToken = response.data.csrf_token;
             tokenLastRefreshed = Date.now();
-            console.log("CSRF token refreshed");
+            console.log("CSRF token refreshed to:", cachedCsrfToken);
             return cachedCsrfToken;
         }
         throw new Error("No CSRF token in response");
@@ -49,6 +49,58 @@ async function getCsrfToken() {
         throw error;
     }
 }
+
+// Add response interceptor to detect auth failures and refresh token
+nodeBBAxios.interceptors.response.use(
+    (response) => {
+        // Log successful response status
+        console.log(`NodeBB API response success: ${response.config.method.toUpperCase()} ${response.config.url} - Status: ${response.status}`);
+        return response;
+    },
+    async (error) => {
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+            const originalRequest = error.config;
+
+            // Prevent infinite loops - only retry once
+            if (!originalRequest._retry) {
+                console.log(`Authentication error detected (${error.response.status}), refreshing token and retrying...`);
+
+                originalRequest._retry = true;
+
+                // Force token refresh
+                tokenLastRefreshed = null;
+                cachedCsrfToken = null;
+
+                try {
+                    // Get a fresh token
+                    const token = await getCsrfToken();
+                    console.log(`Retrying request with fresh token: ${token}`);
+
+                    // Update the token in the request
+                    originalRequest.headers['X-CSRF-Token'] = token;
+
+                    // Retry the request
+                    return nodeBBAxios(originalRequest);
+                } catch (refreshError) {
+                    console.error("Failed to refresh token for retry:", refreshError);
+                    return Promise.reject(error);
+                }
+            }
+        }
+
+        // Log failed response details
+        if (error.response) {
+            console.error(`NodeBB API response error: ${error.config?.method?.toUpperCase()} ${error.config?.url} - Status: ${error.response.status}`);
+            console.error("Response data:", error.response.data);
+        } else if (error.request) {
+            console.error(`NodeBB API request error: No response received for ${error.config?.method?.toUpperCase()} ${error.config?.url}`);
+        } else {
+            console.error(`NodeBB API error: ${error.message}`);
+        }
+
+        return Promise.reject(error);
+    }
+);
 
 // Add interceptor to inject CSRF token and auth headers
 nodeBBAxios.interceptors.request.use(async (config) => {
@@ -62,8 +114,27 @@ nodeBBAxios.interceptors.request.use(async (config) => {
             'Authorization': `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
         };
 
+        // Log the request details
+        console.log(`NodeBB API request: ${config.method.toUpperCase()} ${config.url}`);
+        console.log("Request headers:", JSON.stringify(config.headers, null, 2));
+
+        // Only log body for non-GET requests and if not too large
+        if (config.data && config.method !== 'get') {
+            const dataString = typeof config.data === 'string'
+                ? config.data
+                : JSON.stringify(config.data);
+
+            // Only log first 500 chars if large
+            if (dataString.length > 500) {
+                console.log(`Request body (truncated): ${dataString.substring(0, 500)}...`);
+            } else {
+                console.log("Request body:", dataString);
+            }
+        }
+
         return config;
     } catch (error) {
+        console.error("Error in request interceptor:", error);
         return Promise.reject(error);
     }
 });
