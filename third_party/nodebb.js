@@ -110,8 +110,7 @@ nodeBBAxios.interceptors.request.use(async (config) => {
         // Add headers to the request
         config.headers = {
             ...config.headers,
-            'X-CSRF-Token': token,
-            'Authorization': `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
+            'X-CSRF-Token': token
         };
 
         // Log the request details
@@ -155,7 +154,7 @@ const nodeBB = {
             console.log("Using CSRF Token:", csrfToken);
 
             // Now login to NodeBB with the CSRF token
-            console.log(`Logging into NodeBB with Bearer ${process.env.NODEBB_BEARER_TOKEN}`);
+            console.log(`Logging into NodeBB`);
             const loginResponse = await this.api.post(
                 '/api/v3/utilities/login',
                 {
@@ -352,7 +351,6 @@ const nodeBB = {
                     headers: {
                         Cookie: req.session.nodeBB?.cookies?.join('; ') || '',
                         'X-CSRF-Token': csrfToken || '',
-                        Authorization: `Bearer ${process.env.NODEBB_BEARER_TOKEN}`
                     },
                     params: req.query,
                     data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
