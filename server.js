@@ -152,6 +152,7 @@ async function startServer() {
       },
     });
 
+    app.use(`/forward/nodebb`, nodeBB.createProxyRouter()); // NodeBB proxy routes
     const user_routes = require('./routes/user/user_routes.js');
     app.use('/user/', user_routes);
 

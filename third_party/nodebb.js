@@ -141,4 +141,45 @@ const nodeBB = {
     }
 };
 
+const createProxyRouter = () => {
+    const express = require('express');
+    const router = express.Router();
+
+    // Handle all HTTP methods
+    router.all('*', async (req, res, next) => {
+        try {
+            // Get the path after the proxy route
+            const nodeBBPath = req.path.replace(/^\/+/, '');
+            console.log(`Proxying to NodeBB: ${req.method} ${nodeBBPath}`);
+
+            // Determine if we need to send body data
+            const hasBody = ['POST', 'PUT', 'PATCH'].includes(req.method);
+
+            // Forward the request to NodeBB using our makeRequest helper
+            const response = await nodeBB.makeRequest(
+                req.method,
+                nodeBBPath,
+                hasBody ? req.body : null
+            );
+
+            // Send the response back to the client
+            res.status(response.status).json(response.data);
+        } catch (error) {
+            console.error('NodeBB proxy error:', error);
+
+            // Handle API errors
+            if (error.response) {
+                return res.status(error.response.status).json(error.response.data);
+            }
+
+            // Handle other errors
+            next(error);
+        }
+    });
+
+    return router;
+};
+
+nodeBB.createProxyRouter = createProxyRouter;
+
 module.exports = { nodeBB, getNodeBBServiceUrl };
