@@ -87,23 +87,44 @@ nodeBBAxios.interceptors.response.use(
 // Add interceptor to inject CSRF token and auth headers
 nodeBBAxios.interceptors.request.use(async (config) => {
     try {
-        // Use provided session token or get new one with existing cookies
-        const token = config.sessionToken || (await getCsrfToken(config.sessionCookies)).token;
+        // If we have session data, always use it
+        if (config.sessionToken && config.sessionCookies) {
+            config.headers = {
+                ...config.headers,
+                'X-CSRF-Token': config.sessionToken,
+                'Cookie': Array.isArray(config.sessionCookies)
+                    ? config.sessionCookies.join('; ')
+                    : config.sessionCookies
+            };
+
+            console.log('Using existing session:', {
+                hasToken: !!config.sessionToken,
+                hasCookies: !!config.sessionCookies
+            });
+
+            return config;
+        }
+
+        // Otherwise get fresh token/cookies
+        const { token, cookies } = await getCsrfToken(config.sessionCookies);
+        if (!token) {
+            throw new Error('Failed to get CSRF token');
+        }
 
         config.headers = {
             ...config.headers,
             'X-CSRF-Token': token
         };
 
-        if (config.sessionCookies) {
-            config.headers.Cookie = Array.isArray(config.sessionCookies)
-                ? config.sessionCookies.join('; ')
-                : config.sessionCookies;
+        if (cookies) {
+            config.headers.Cookie = Array.isArray(cookies)
+                ? cookies.join('; ')
+                : cookies;
         }
 
         return config;
     } catch (error) {
-        console.error("Error in request interceptor:", error);
+        console.error('Error in request interceptor:', error);
         return Promise.reject(error);
     }
 });
@@ -198,36 +219,53 @@ const nodeBB = {
             }
 
             try {
-                if (!req.session?.nodeBB?.cookies?.[0]) {
-                    console.log('NodeBB session not found');
+                // Debug session state
+                console.log('NodeBB Proxy Session State:', {
+                    sessionId: req.sessionID,
+                    hasNodeBB: !!req.session.nodeBB,
+                    cookies: req.session.nodeBB?.cookies,
+                    csrfToken: req.session.nodeBB?.csrfToken
+                });
+
+                const nodeBBPath = req.path.replace(/^\/+/, '');
+                console.log(`Proxying request to NodeBB: ${nodeBBPath}`);
+
+                // Ensure we have NodeBB session data
+                if (!req.session?.nodeBB?.cookies?.[0] || !req.session?.nodeBB?.csrfToken) {
+                    console.error('Missing NodeBB session data:', {
+                        hasCookies: !!req.session?.nodeBB?.cookies,
+                        hasToken: !!req.session?.nodeBB?.csrfToken
+                    });
                     return res.status(401).json({
                         error: 'NodeBB session not found',
                         message: 'Please log in again'
                     });
                 }
 
+                // Make request with existing session data
                 const response = await this.makeRequest(
                     req.method,
-                    req.path.replace(/^\/+/, ''),
+                    nodeBBPath,
                     ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : null,
-                    req.session
+                    {
+                        nodeBB: {
+                            cookies: req.session.nodeBB.cookies,
+                            csrfToken: req.session.nodeBB.csrfToken
+                        }
+                    }
                 );
 
-                // Only save session if cookies changed
-                if (response.headers['set-cookie']) {
-                    const newSessionCookie = response.headers['set-cookie'].find(
-                        cookie => cookie.startsWith('express.sid=')
-                    );
-                    if (newSessionCookie && newSessionCookie !== req.session.nodeBB.cookies[0]) {
-                        req.session.nodeBB.cookies = [newSessionCookie];
-                        await new Promise((resolve, reject) => {
-                            req.session.save(err => err ? reject(err) : resolve());
-                        });
-                    }
-                }
-
+                // Return the response
                 res.status(response.status).send(response.data);
             } catch (error) {
+                console.error('NodeBB proxy error:', error);
+                if (error.response) {
+                    return res.status(error.response.status).json({
+                        error: 'NodeBB request failed',
+                        status: error.response.status,
+                        details: error.response.data
+                    });
+                }
                 next(error);
             }
         });
