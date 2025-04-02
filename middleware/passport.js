@@ -4,18 +4,15 @@ const { nodeBB } = require('../third_party/nodebb');
 
 const configurePassport = () => {
     passport.serializeUser((user, done) => {
-        // Store all necessary user data in the session
+        // Store minimal user data in session
         done(null, {
             uid: user.uid,
             username: user.username,
-            csrfToken: user.csrfToken,
-            emailConfirmed: user.emailConfirmed,
             isAdmin: user.isAdmin
         });
     });
 
     passport.deserializeUser((serializedUser, done) => {
-        // Pass the user object directly as stored during serialization
         done(null, serializedUser);
     });
 
@@ -27,26 +24,25 @@ const configurePassport = () => {
         },
         async (req, username, password, done) => {
             try {
-                // Initialize or clear nodeBB session data
+                // Initialize nodeBB session data
                 if (!req.session.nodeBB) {
                     req.session.nodeBB = {};
                 }
 
-                // NodeBB session initialization
+                // Get NodeBB session
                 const nodeBBSession = await nodeBB.initializeNodeBBSession(username, password);
 
                 if (!nodeBBSession.success) {
                     return done(null, false, { message: 'NodeBB authentication failed' });
                 }
 
-                // Store NodeBB cookies and CSRF token in the session
-                req.session.nodeBB.cookies = nodeBBSession.cookies;
-                req.session.nodeBB.csrfToken = nodeBBSession.csrfToken;
+                // Store NodeBB session data
+                req.session.nodeBB = {
+                    cookies: nodeBBSession.cookies,
+                    csrfToken: nodeBBSession.csrfToken
+                };
 
-                // Also store cookies in request to forward to client later
-                req.loginCookies = nodeBBSession.cookies;
-
-                // Save the session explicitly to ensure data is stored
+                // Save session before continuing
                 await new Promise((resolve, reject) => {
                     req.session.save(err => {
                         if (err) {
@@ -58,27 +54,19 @@ const configurePassport = () => {
                     });
                 });
 
-                // Create user object with the data from NodeBB
+                // Create minimal user object
                 const userData = nodeBBSession.userData;
                 const user = {
                     uid: userData.uid,
                     username: userData.username,
-                    email: userData.email,
-                    csrfToken: nodeBBSession.csrfToken,
-                    emailConfirmed: userData['email:confirmed'] || 0,
-                    isAdmin: userData.groupTitleArray?.includes("administrators") ||
-                        userData.isAdmin || false,
-                    // Add any other necessary user data
-                    groupTitleArray: userData.groupTitleArray || []
+                    isAdmin: userData.groupTitleArray?.includes("administrators") || false
                 };
 
                 console.log('User authenticated successfully:', username);
-                console.log('User data:', JSON.stringify(user, null, 2));
-                console.log('Session state after login:', {
+                console.log('Session state:', {
                     id: req.sessionID,
-                    hasNodeBB: !!req.session.nodeBB,
-                    hasCookies: !!req.session.nodeBB?.cookies,
-                    hasCSRF: !!req.session.nodeBB?.csrfToken
+                    hasNodeBB: true,
+                    hasCookies: true
                 });
 
                 return done(null, user);
