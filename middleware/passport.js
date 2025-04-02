@@ -43,6 +43,9 @@ const configurePassport = () => {
                 req.session.nodeBB.cookies = nodeBBSession.cookies;
                 req.session.nodeBB.csrfToken = nodeBBSession.csrfToken;
 
+                // Also store cookies in request to forward to client later
+                req.loginCookies = nodeBBSession.cookies;
+
                 // Save the session explicitly to ensure data is stored
                 await new Promise((resolve, reject) => {
                     req.session.save(err => {
@@ -60,10 +63,13 @@ const configurePassport = () => {
                 const user = {
                     uid: userData.uid,
                     username: userData.username,
+                    email: userData.email,
                     csrfToken: nodeBBSession.csrfToken,
                     emailConfirmed: userData['email:confirmed'] || 0,
                     isAdmin: userData.groupTitleArray?.includes("administrators") ||
-                        userData.isAdmin || false
+                        userData.isAdmin || false,
+                    // Add any other necessary user data
+                    groupTitleArray: userData.groupTitleArray || []
                 };
 
                 console.log('User authenticated successfully:', username);

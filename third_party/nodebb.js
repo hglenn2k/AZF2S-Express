@@ -18,16 +18,29 @@ const nodeBBAxios = axios.create({
     baseURL: getNodeBBServiceUrl()
 });
 
-// Function to get CSRF token - kept separate to avoid circular dependency
-async function getCsrfToken() {
+// Function to get CSRF token - updated to work with session cookies
+async function getCsrfToken(cookies = null) {
     console.log("Fetching new CSRF token");
     try {
-        const response = await axios.get(`${getNodeBBServiceUrl()}/api/config`);
+        const config = { withCredentials: true };
+        if (cookies) {
+            config.headers = {
+                Cookie: Array.isArray(cookies) ? cookies.join('; ') : cookies
+            };
+        }
+
+        const response = await axios.get(`${getNodeBBServiceUrl()}/api/config`, config);
         if (response.data?.csrf_token) {
             console.log("CSRF token received:", response.data.csrf_token);
-            return response.data.csrf_token;
+
+            // Return both token and any new cookies
+            return {
+                token: response.data.csrf_token,
+                cookies: response.headers['set-cookie'] || cookies
+            };
         }
         console.error("Failed to fetch CSRF token: No CSRF token in response");
+        return { token: null, cookies: null };
     } catch (error) {
         console.error("Failed to fetch CSRF token:", error.message);
         throw error;
@@ -39,6 +52,12 @@ nodeBBAxios.interceptors.response.use(
     (response) => {
         // Log successful response status
         console.log(`NodeBB API response success: ${response.config.method.toUpperCase()} ${response.config.url} - Status: ${response.status}`);
+
+        // If the response includes new cookies, store them
+        if (response.headers['set-cookie']) {
+            response.sessionCookies = response.headers['set-cookie'];
+        }
+
         return response;
     },
     async (error) => {
@@ -51,17 +70,24 @@ nodeBBAxios.interceptors.response.use(
 
                 originalRequest._retry = true;
 
-                // Force token refresh
-                tokenLastRefreshed = null;
-                cachedCsrfToken = null;
-
                 try {
-                    // Get a fresh token
-                    const token = await getCsrfToken();
+                    // Get a fresh token using the original cookies
+                    const { token, cookies } = await getCsrfToken(originalRequest.sessionCookies);
+
+                    if (!token) {
+                        throw new Error("Failed to obtain new CSRF token");
+                    }
+
                     console.log(`Retrying request with fresh token: ${token}`);
 
-                    // Update the token in the request
+                    // Update the token and cookies in the request
                     originalRequest.headers['X-CSRF-Token'] = token;
+                    if (cookies) {
+                        originalRequest.headers.Cookie = Array.isArray(cookies)
+                            ? cookies.join('; ')
+                            : cookies;
+                        originalRequest.sessionCookies = cookies;
+                    }
 
                     // Retry the request
                     return nodeBBAxios(originalRequest);
@@ -86,16 +112,36 @@ nodeBBAxios.interceptors.response.use(
     }
 );
 
-// Add interceptor to inject CSRF token and auth headers
+// Add interceptor to inject CSRF token and auth headers from session
 nodeBBAxios.interceptors.request.use(async (config) => {
     try {
-        const token = await getCsrfToken();
+        let token;
+        // If session token is provided in the config, use it
+        if (config.sessionToken) {
+            token = config.sessionToken;
+        } else {
+            // Otherwise try to get a fresh token
+            const tokenResponse = await getCsrfToken(config.sessionCookies);
+            token = tokenResponse.token;
+
+            // Update cookies if we got new ones
+            if (tokenResponse.cookies) {
+                config.sessionCookies = tokenResponse.cookies;
+            }
+        }
 
         // Add headers to the request
         config.headers = {
             ...config.headers,
             'X-CSRF-Token': token
         };
+
+        // Add cookies if available
+        if (config.sessionCookies) {
+            config.headers.Cookie = Array.isArray(config.sessionCookies)
+                ? config.sessionCookies.join('; ')
+                : config.sessionCookies;
+        }
 
         // Log the request details
         console.log(`NodeBB API request: ${config.method.toUpperCase()} ${config.url}`);
@@ -126,7 +172,28 @@ const nodeBB = {
     // Expose token management
     getCsrfToken,
 
-    // Expose the Axios instance directly - now all HTTP methods are available
+    // Helper method to make requests with session context
+    async makeRequest(method, url, data = null, session = null) {
+        const config = {
+            method,
+            url,
+            withCredentials: true
+        };
+
+        if (data && method.toLowerCase() !== 'get') {
+            config.data = data;
+        }
+
+        // Add session token and cookies if available
+        if (session?.nodeBB) {
+            config.sessionToken = session.nodeBB.csrfToken;
+            config.sessionCookies = session.nodeBB.cookies;
+        }
+
+        return this.api(config);
+    },
+
+    // Expose the Axios instance directly
     api: nodeBBAxios,
 
     async initializeNodeBBSession(username, password) {
@@ -134,18 +201,24 @@ const nodeBB = {
             console.log("Starting NodeBB session initialization");
 
             // First get the CSRF token
-            const csrfToken = await getCsrfToken();
+            const { token: csrfToken, cookies: initialCookies } = await getCsrfToken();
             console.log("Using CSRF Token:", csrfToken);
 
             // Now login to NodeBB with the CSRF token
             console.log(`Logging into NodeBB`);
-            const loginResponse = await this.api.post(
-                '/api/v3/utilities/login',
-                {
+            const loginResponse = await this.api({
+                method: 'post',
+                url: '/api/v3/utilities/login',
+                data: {
                     username: username,
                     password: password,
-                }
-            );
+                },
+                headers: {
+                    'X-CSRF-Token': csrfToken
+                },
+                withCredentials: true,
+                sessionCookies: initialCookies
+            });
 
             console.log("Login Response Headers:", JSON.stringify(loginResponse.headers, null, 2));
             console.log("Login Cookies:", loginResponse.headers['set-cookie']);
@@ -159,14 +232,25 @@ const nodeBB = {
                 );
             }
 
+            // Use the cookies from login response for subsequent requests
+            const loginCookies = loginResponse.headers['set-cookie'] || initialCookies;
+
             // User data fetching with improved error handling
             console.log("Getting more user data for passport cookie...");
             let userData = null;
 
             try {
-                const getUserResponse = await this.api.get(
-                    `/api/user/username/${username}`
-                );
+                const getUserResponse = await this.api({
+                    method: 'get',
+                    url: `/api/user/username/${username}`,
+                    headers: {
+                        'X-CSRF-Token': csrfToken,
+                        Cookie: Array.isArray(loginCookies) ? loginCookies.join('; ') : loginCookies
+                    },
+                    withCredentials: true,
+                    sessionCookies: loginCookies,
+                    sessionToken: csrfToken
+                });
 
                 console.log("GetUser Response Status:", getUserResponse.status);
                 console.log("GetUser Response Headers:", JSON.stringify(getUserResponse.headers, null, 2));
@@ -200,17 +284,11 @@ const nodeBB = {
 
             // Store the CSRF token from the login response if available, otherwise use the one from config
             const finalCsrfToken = loginResponse.data?.user?.csrfToken || csrfToken;
-
-            // Update our cached token if we received a new one
-            if (finalCsrfToken !== csrfToken) {
-                cachedCsrfToken = finalCsrfToken;
-                tokenLastRefreshed = Date.now();
-                console.log("Updated cached CSRF token after login");
-            }
+            const finalCookies = loginResponse.headers['set-cookie'] || loginCookies;
 
             return {
                 success: true,
-                cookies: loginResponse.headers['set-cookie'],
+                cookies: finalCookies,
                 csrfToken: finalCsrfToken,
                 userData: userData
             };
@@ -267,22 +345,21 @@ const nodeBB = {
                     console.log('NodeBB session not found, attempting to refresh...');
 
                     // We already have authenticated user data from passport
-                    if (req.user && req.user.username && req.user.csrfToken) {
-                        console.log('Found user data in passport session, setting NodeBB session');
+                    if (req.user && req.user.username) {
+                        console.log('Found user data in passport session, attempting to refresh NodeBB session');
+
+                        // Try to get a fresh token using any existing cookies
+                        const existingCookies = req.session.nodeBB?.cookies;
+                        const { token, cookies } = await this.getCsrfToken(existingCookies);
 
                         // Initialize nodeBB property if it doesn't exist
                         if (!req.session.nodeBB) {
                             req.session.nodeBB = {};
                         }
 
-                        // Set CSRF token from passport user
-                        req.session.nodeBB.csrfToken = req.user.csrfToken;
-
-                        // If we still don't have cookies but have a CSRF token, we'll attempt a proxy
-                        // but log the issue for debugging
-                        if (!req.session.nodeBB.cookies) {
-                            console.warn('Missing NodeBB cookies in session, proxy may fail');
-                        }
+                        // Set token and cookies in session
+                        if (token) req.session.nodeBB.csrfToken = token;
+                        if (cookies) req.session.nodeBB.cookies = cookies;
 
                         // Save the session
                         await new Promise((resolve, reject) => {
@@ -292,6 +369,7 @@ const nodeBB = {
                             });
                         });
 
+                        console.log('NodeBB session refreshed with new token');
                         return next();
                     }
 
@@ -325,40 +403,29 @@ const nodeBB = {
                     csrfToken: req.session.nodeBB?.csrfToken,
                 });
 
-                // Use cached CSRF token as fallback if session token is missing
-                const csrfToken = req.session.nodeBB?.csrfToken || cachedCsrfToken;
+                // Make the request using the session info
+                const response = await this.makeRequest(
+                    req.method,
+                    nodeBBPath,
+                    ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : null,
+                    req.session
+                );
 
-                // Prepare the request config
-                const config = {
-                    method: req.method,
-                    url: `${getNodeBBServiceUrl()}/${nodeBBPath}`,
-                    headers: {
-                        Cookie: req.session.nodeBB?.cookies?.join('; ') || '',
-                        'X-CSRF-Token': csrfToken || '',
-                    },
-                    params: req.query,
-                    data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
-                    withCredentials: true
-                };
-
-                console.log('Proxy Request Headers:', JSON.stringify(config.headers, null, 2));
-
-                // Make the request to NodeBB - using base axios to avoid interceptor
-                const response = await axios(config);
                 console.log(`Proxy response status: ${response.status}`);
 
-                // Forward any cookies from NodeBB to the client
-                if (response.headers['set-cookie']) {
-                    response.headers['set-cookie'].forEach(cookie => {
-                        res.append('Set-Cookie', cookie);
-                    });
-
+                // Update session cookies if we got new ones
+                if (response.sessionCookies) {
                     // Update NodeBB cookies in the session
-                    req.session.nodeBB.cookies = response.headers['set-cookie'];
+                    req.session.nodeBB.cookies = response.sessionCookies;
 
                     // Save the updated session
                     req.session.save(err => {
                         if (err) console.error('Error saving session after updating cookies:', err);
+                    });
+
+                    // Forward cookies to client
+                    response.sessionCookies.forEach(cookie => {
+                        res.append('Set-Cookie', cookie);
                     });
                 }
 

@@ -31,9 +31,7 @@ router.get("/", validateSession, asyncHandler(async (req, res) => {
     }
 
     try {
-        const getWithRetry = withNetworkRetry(nodeBB.api.get);
-
-        const response = await getWithRetry(`/api/user/uid/${userId}`);
+        const response = await nodeBB.makeRequest('get', `/api/user/uid/${userId}`, null, req.session);
 
         if (!response.data) {
             return res.status(404).json({ error: "User not found" });
@@ -219,10 +217,8 @@ router.post("/sign-up", signupLimiter, asyncHandler(async (req, res) => {
             });
         }
 
-        const response = await nodeBB.api.post(
-            `/api/v3/users/`,
-            { _uid, username, password, email }
-        );
+        const response = await nodeBB.makeRequest('post', `/api/v3/users/`,
+            { _uid, username, password, email }, req.session);
 
         if (response.headers["set-cookie"]) {
             // In production, would add SameSite and Secure flags
