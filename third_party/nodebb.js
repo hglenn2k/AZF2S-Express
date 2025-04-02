@@ -234,7 +234,7 @@ const nodeBB = {
 
     createProxyRouter() {
         const express = require('express');
-        const router = express.Router();
+        const router = express.Router({mergeParams: true});
 
         router.use((req, res, next) => {
             console.log('Proxy router session check:', {
