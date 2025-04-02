@@ -50,13 +50,6 @@ router.get("/", validateSession, asyncHandler(async (req, res) => {
             });
         }
 
-        // Forward NodeBB cookies to client if they exist
-        if (response.headers['set-cookie']) {
-            response.headers['set-cookie'].forEach(cookie => {
-                res.append('Set-Cookie', cookie);
-            });
-        }
-
         // Return all fields from NodeBB's response
         res.status(200).json(response.data);
     } catch (error) {
@@ -219,12 +212,6 @@ router.post("/sign-up", signupLimiter, asyncHandler(async (req, res) => {
 
         const response = await nodeBB.makeRequest('post', `/api/v3/users/`,
             { _uid, username, password, email }, req.session);
-
-        if (response.headers["set-cookie"]) {
-            // In production, would add SameSite and Secure flags
-            const cookies = response.headers["set-cookie"];
-            res.setHeader("set-cookie", cookies);
-        }
 
         // Return minimal necessary user data in response
         const userData = {

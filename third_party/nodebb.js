@@ -236,6 +236,16 @@ const nodeBB = {
         const express = require('express');
         const router = express.Router();
 
+        router.use((req, res, next) => {
+            console.log('Proxy router session check:', {
+                routeSessionID: req.sessionID,
+                hasNodeBB: !!req.session?.nodeBB,
+                // Log the session keys to see what's there
+                sessionKeys: req.session ? Object.keys(req.session) : []
+            });
+            next();
+        });
+
         // Add a debugging middleware to inspect the cookie headers
         router.use((req, res, next) => {
             console.log('=============== COOKIE DEBUG ===============');
@@ -300,7 +310,8 @@ const nodeBB = {
                     req.session
                 );
 
-                // Return the response
+                // Return the response without overwriting cookie
+                delete response.headers['set-cookie']; // Remove cookie headers completely
                 res.status(response.status).send(response.data);
             } catch (error) {
                 console.error('NodeBB proxy error:', error);
