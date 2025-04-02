@@ -23,35 +23,12 @@ const configurePassport = () => {
         },
         async (req, username, password, done) => {
             try {
-                // Initialize nodeBB session container
-                if (!req.session.nodeBB) {
-                    req.session.nodeBB = {};
-                }
-
-                // Get NodeBB session
+                // Authenticate with NodeBB using Bearer token
                 const nodeBBSession = await nodeBB.initializeNodeBBSession(username, password);
 
                 if (!nodeBBSession.success) {
                     return done(null, false, { message: 'NodeBB authentication failed' });
                 }
-
-                // Store NodeBB session data
-                req.session.nodeBB = {
-                    cookies: nodeBBSession.cookies,
-                    csrfToken: nodeBBSession.csrfToken
-                };
-
-                // Save session before continuing
-                await new Promise((resolve, reject) => {
-                    req.session.save(err => {
-                        if (err) {
-                            console.error('Error saving session after NodeBB login:', err);
-                            reject(err);
-                        } else {
-                            resolve();
-                        }
-                    });
-                });
 
                 // Create minimal user object
                 const userData = nodeBBSession.userData;
@@ -62,12 +39,6 @@ const configurePassport = () => {
                 };
 
                 console.log('User authenticated successfully:', username);
-                console.log('Session state after login:', {
-                    id: req.sessionID,
-                    hasNodeBB: !!req.session.nodeBB,
-                    hasCookies: !!req.session.nodeBB?.cookies,
-                    hasCSRF: !!req.session.nodeBB?.csrfToken
-                });
 
                 return done(null, user);
             } catch (error) {

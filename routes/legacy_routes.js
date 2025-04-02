@@ -203,7 +203,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
                 },
                 {
                     headers: {
-                        Authorization: "Bearer " + process.env.NODEBB_BEARER_TOKEN,
+                        Authorization: "Bearer " + process.env.NODEBB_BEARER,
                     },
                 }
             );

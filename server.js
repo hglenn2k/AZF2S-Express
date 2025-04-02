@@ -34,14 +34,12 @@ const session = require("express-session");
 const MongoStore = require("connect-mongo");
 const { google } = require("googleapis");
 const cors = require("cors");
-const axios = require("axios");
+require("axios");
 require("dotenv").config();
 const nodemailer = require("nodemailer");
-const fetch = require("node-fetch");
-const dayjs = require("dayjs");
-const { ObjectId } = require("mongodb");
+require("node-fetch");
+require("dayjs");
 const {notFoundMiddleware, errorMiddleware} = require("./middleware/errorHandling");
-const {validateSession, validateAdminSession } = require("./middleware/validateSession");
 const { sanitizeRequestBody } = require("./middleware/sanitizeRequests");
 const setupLegacyRoutes = require("./routes/legacy_routes");
 const app = express();
@@ -152,44 +150,6 @@ async function startServer() {
         user: process.env.BREVO_SMTP_LOGIN,
         pass: process.env.BREVO_SMTP_PASSWORD,
       },
-    });
-
-    // Register modern routes
-    app.use('/forward/nodebb', async (req, res, next) => {
-      // Basic auth check
-      if (!req.isAuthenticated()) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
-
-      // Log the state for debugging
-      console.log('Direct proxy - Session ID:', req.sessionID);
-      console.log('Direct proxy - NodeBB session exists:', !!req.session?.nodeBB);
-
-      try {
-        const nodeBBPath = req.path.replace(/^\/+/, '');
-        console.log(`Proxying to NodeBB: ${nodeBBPath}`);
-
-        // Simply use the makeRequest method with the current session
-        const response = await nodeBB.makeRequest(
-            req.method,
-            nodeBBPath,
-            ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : null,
-            req.session
-        );
-
-        // Remove any cookies from the response to avoid overwriting client cookies
-        delete response.headers['set-cookie'];
-
-        // Send the response data back to the client
-        res.status(response.status).send(response.data);
-      } catch (error) {
-        console.error('NodeBB proxy error:', error);
-        if (error.response) {
-          // Return the NodeBB error status and data
-          return res.status(error.response.status).json(error.response.data);
-        }
-        next(error);
-      }
     });
 
     const user_routes = require('./routes/user/user_routes.js');
@@ -328,19 +288,14 @@ async function startServer() {
           user: req.user ? {
             uid: req.user.uid,
             username: req.user.username,
-            hasCSRF: !!req.user.csrfToken,
             isAdmin: req.user.isAdmin
           } : null,
           session: {
-            id: req.sessionID,
-            hasNodeBB: !!req.session.nodeBB,
-            hasCookies: !!req.session.nodeBB?.cookies,
-            cookiesCount: req.session.nodeBB?.cookies?.length || 0,
-            hasCSRF: !!req.session.nodeBB?.csrfToken
+            id: req.sessionID
           },
-          headers: {
-            hasCookie: !!req.headers.cookie,
-            cookie: req.headers.cookie
+          auth: {
+            method: "Bearer Token",
+            tokenAvailable: !!process.env.NODEBB_BEARER
           }
         };
 
@@ -376,14 +331,6 @@ async function startServer() {
           authentication: {
             hasPassport: req.session && !!req.session.passport,
             isAuthenticated: req.isAuthenticated && req.isAuthenticated() || false
-          },
-          headers: {
-            hasCookie: !!req.headers.cookie
-          },
-          nodeBB: {
-            available: !!req.session?.nodeBB,
-            hasCookies: !!req.session?.nodeBB?.cookies,
-            hasCSRF: !!req.session?.nodeBB?.csrfToken
           }
         },
         timestamp: new Date().toISOString()
