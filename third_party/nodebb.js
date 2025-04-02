@@ -209,10 +209,34 @@ const nodeBB = {
         }
     },
 
+    async verifyNodeBBHealth() {
+        try {
+            const response = await axios.get(`${getNodeBBServiceUrl()}/api/config`, {
+                timeout: 5000
+            });
+
+            return {
+                status: 'ok',
+                details: {
+                    version: response.data?.version || 'unknown',
+                    uptime: response.data?.uptime || 'unknown'
+                },
+                timestamp: new Date().toISOString()
+            };
+        } catch (error) {
+            return {
+                status: 'error',
+                error: error.message,
+                timestamp: new Date().toISOString()
+            };
+        }
+    },
+
     createProxyRouter() {
         const express = require('express');
         const router = express.Router();
 
+        // Important: Instead of using 'this', we directly reference the 'nodeBB' object
         router.use(async (req, res, next) => {
             if (!req.isAuthenticated()) {
                 return res.status(401).json({ error: 'Authentication required' });
@@ -242,17 +266,13 @@ const nodeBB = {
                     });
                 }
 
-                // Make request with existing session data
-                const response = await this.makeRequest(
+                // Make request with existing session data - use direct reference to nodeBB
+                // Pass the whole req.session object - this is the key change
+                const response = await nodeBB.makeRequest(
                     req.method,
                     nodeBBPath,
                     ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : null,
-                    {
-                        nodeBB: {
-                            cookies: req.session.nodeBB.cookies,
-                            csrfToken: req.session.nodeBB.csrfToken
-                        }
-                    }
+                    req.session
                 );
 
                 // Return the response
