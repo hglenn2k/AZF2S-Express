@@ -107,9 +107,15 @@ async function startServer() {
     // Configure session store with the connected client
     const sessionStore = MongoStore.create({
       client: mongoClient.client,
-      dbName: process.env.MONGO_ENV || 'DEV',  // Specify the database name
+      dbName: process.env.MONGO_ENV || 'DEV',
       collectionName: "sessions",
-      stringify: false
+      stringify: false,
+      autoRemove: 'native', // Use MongoDB's TTL index
+      ttl: 24 * 60 * 60, // 1 day in seconds
+      touchAfter: 10 * 60, // Only update session if 10 minutes passed
+      crypto: {
+        secret: process.env.EXPRESS_SESSION_SECRET // Encrypt session data
+      }
     });
 
     // Configure session middleware
@@ -117,13 +123,15 @@ async function startServer() {
         session({
           store: sessionStore,
           secret: process.env.EXPRESS_SESSION_SECRET,
-          key: "express.sid",
+          key: "express.sid", // This should match what the client is sending
           resave: false,
           saveUninitialized: false,
           cookie: {
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 1000 * 60 * 60 * 24 // 24 hours
+            path: '/', // Make sure cookie is sent for ALL paths
+            maxAge: 1000 * 60 * 60 * 24, // 24 hours
+            httpOnly: true
           }
         })
     );
@@ -352,6 +360,36 @@ async function startServer() {
     // Error middlewares should be last
     app.use(notFoundMiddleware);
     app.use(errorMiddleware);
+
+    // After all middleware setup, add a cookie consistency middleware
+    // to ensure cookie is properly set in every response
+    app.use((req, res, next) => {
+      // Ensure session cookie is set in all responses
+      // This addresses issues with cookie propagation across different routes
+      const originalEnd = res.end;
+
+      res.end = function() {
+        if (req.session && req.sessionID) {
+          // Capture the current time the session was accessed
+          req.session.lastAccess = Date.now();
+
+          // Force the session to be saved back to the store
+          req.session.save((err) => {
+            if (err) {
+              console.error('Failed to save session:', err);
+            }
+
+            // Call the original end method
+            originalEnd.apply(res, arguments);
+          });
+        } else {
+          // Call the original end method if no session
+          originalEnd.apply(res, arguments);
+        }
+      };
+
+      next();
+    });
 
     // Start the server
     app.listen(PORT, () => {

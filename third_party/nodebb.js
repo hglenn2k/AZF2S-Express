@@ -236,7 +236,29 @@ const nodeBB = {
         const express = require('express');
         const router = express.Router();
 
-        // Important: Instead of using 'this', we directly reference the 'nodeBB' object
+        // Add a debugging middleware to inspect the cookie headers
+        router.use((req, res, next) => {
+            console.log('=============== COOKIE DEBUG ===============');
+            console.log('Request URL:', req.originalUrl);
+            console.log('Session ID:', req.sessionID);
+            console.log('Cookie Header:', req.headers.cookie);
+
+            // Parse and log individual cookies
+            const cookies = req.headers.cookie ?
+                req.headers.cookie.split(';').reduce((obj, c) => {
+                    const [key, val] = c.trim().split('=');
+                    obj[key] = val;
+                    return obj;
+                }, {}) : {};
+
+            console.log('Parsed Cookies:', JSON.stringify(cookies, null, 2));
+            console.log('Has express.sid:', !!cookies['express.sid']);
+            console.log('Has connect.sid:', !!cookies['connect.sid']);
+            console.log('===========================================');
+            next();
+        });
+
+        // Regular authentication and proxy logic
         router.use(async (req, res, next) => {
             if (!req.isAuthenticated()) {
                 return res.status(401).json({ error: 'Authentication required' });
@@ -248,10 +270,14 @@ const nodeBB = {
                     sessionId: req.sessionID,
                     hasNodeBB: !!req.session.nodeBB,
                     cookies: req.session.nodeBB?.cookies,
-                    csrfToken: req.session.nodeBB?.csrfToken
+                    csrfToken: req.session.nodeBB?.csrfToken,
+                    user: req.user ? {
+                        uid: req.user.uid,
+                        username: req.user.username
+                    } : null
                 });
 
-                const nodeBBPath = req.path.replace(/^\/+/, '');
+                const nodeBBPath = req.path.replace(/\/+/g, '/').replace(/^\//, '');
                 console.log(`Proxying request to NodeBB: ${nodeBBPath}`);
 
                 // Ensure we have NodeBB session data
@@ -267,7 +293,6 @@ const nodeBB = {
                 }
 
                 // Make request with existing session data - use direct reference to nodeBB
-                // Pass the whole req.session object - this is the key change
                 const response = await nodeBB.makeRequest(
                     req.method,
                     nodeBBPath,
