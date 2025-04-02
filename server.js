@@ -155,9 +155,42 @@ async function startServer() {
     });
 
     // Register modern routes
-    // NodeBB proxy router - don't pass express as an argument
-    const nodeBBProxyRouter = nodeBB.createProxyRouter();
-    app.use('/forward/nodebb', nodeBBProxyRouter);
+    app.use('/forward/nodebb', async (req, res, next) => {
+      // Basic auth check
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      // Log the state for debugging
+      console.log('Direct proxy - Session ID:', req.sessionID);
+      console.log('Direct proxy - NodeBB session exists:', !!req.session?.nodeBB);
+
+      try {
+        const nodeBBPath = req.path.replace(/^\/+/, '');
+        console.log(`Proxying to NodeBB: ${nodeBBPath}`);
+
+        // Simply use the makeRequest method with the current session
+        const response = await nodeBB.makeRequest(
+            req.method,
+            nodeBBPath,
+            ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : null,
+            req.session
+        );
+
+        // Remove any cookies from the response to avoid overwriting client cookies
+        delete response.headers['set-cookie'];
+
+        // Send the response data back to the client
+        res.status(response.status).send(response.data);
+      } catch (error) {
+        console.error('NodeBB proxy error:', error);
+        if (error.response) {
+          // Return the NodeBB error status and data
+          return res.status(error.response.status).json(error.response.data);
+        }
+        next(error);
+      }
+    });
 
     const user_routes = require('./routes/user/user_routes.js');
     app.use('/user/', user_routes);
@@ -360,36 +393,6 @@ async function startServer() {
     // Error middlewares should be last
     app.use(notFoundMiddleware);
     app.use(errorMiddleware);
-
-    // After all middleware setup, add a cookie consistency middleware
-    // to ensure cookie is properly set in every response
-    app.use((req, res, next) => {
-      // Ensure session cookie is set in all responses
-      // This addresses issues with cookie propagation across different routes
-      const originalEnd = res.end;
-
-      res.end = function() {
-        if (req.session && req.sessionID) {
-          // Capture the current time the session was accessed
-          req.session.lastAccess = Date.now();
-
-          // Force the session to be saved back to the store
-          req.session.save((err) => {
-            if (err) {
-              console.error('Failed to save session:', err);
-            }
-
-            // Call the original end method
-            originalEnd.apply(res, arguments);
-          });
-        } else {
-          // Call the original end method if no session
-          originalEnd.apply(res, arguments);
-        }
-      };
-
-      next();
-    });
 
     // Start the server
     app.listen(PORT, () => {
