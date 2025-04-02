@@ -442,7 +442,7 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
     }
 
     // Use Passport's authenticate method
-    passport.authenticate('local', (err, user, info, nodeBBCookies) => {
+    passport.authenticate('local', (err, user, info) => {
         if (err) {
             console.error("Authentication error:", err);
             return next(new ApiError("Authentication error", 500));
@@ -455,38 +455,18 @@ router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
             });
         }
 
-        // Log in the user
         req.login(user, (loginErr) => {
             if (loginErr) {
                 console.error("Session error:", loginErr);
                 return next(new ApiError("Login error", 500));
             }
 
-            // Forward NodeBB cookies to client
-            if (req.loginCookies) {
-                console.log("Forwarding NodeBB cookies:", req.loginCookies);
-
-                // Set each cookie individually with proper options
-                req.loginCookies.forEach(cookie => {
-                    // The cookie string has name=value; path=/; etc.
-                    // We just forward it directly
-                    res.append('Set-Cookie', cookie);
-                });
-            } else {
-                console.warn("No NodeBB cookies found to forward");
-            }
-
-            // Return the complete user object with all available fields
+            // Return only necessary user data to client
             return res.json({
                 success: true,
                 user: {
                     uid: user.uid,
                     username: user.username,
-                    email: user.email || "",
-                    "email:confirmed": user["email:confirmed"] || user.emailConfirmed || 0,
-                    groupTitle: user.groupTitle || "",
-                    groupTitleArray: user.groupTitleArray || [],
-                    csrfToken: user.csrfToken,
                     isAdmin: user.isAdmin
                 }
             });

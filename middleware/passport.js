@@ -4,7 +4,6 @@ const { nodeBB } = require('../third_party/nodebb');
 
 const configurePassport = () => {
     passport.serializeUser((user, done) => {
-        // Store minimal user data in session
         done(null, {
             uid: user.uid,
             username: user.username,
@@ -24,7 +23,7 @@ const configurePassport = () => {
         },
         async (req, username, password, done) => {
             try {
-                // Initialize nodeBB session data
+                // Initialize nodeBB session container
                 if (!req.session.nodeBB) {
                     req.session.nodeBB = {};
                 }
@@ -63,10 +62,11 @@ const configurePassport = () => {
                 };
 
                 console.log('User authenticated successfully:', username);
-                console.log('Session state:', {
+                console.log('Session state after login:', {
                     id: req.sessionID,
-                    hasNodeBB: true,
-                    hasCookies: true
+                    hasNodeBB: !!req.session.nodeBB,
+                    hasCookies: !!req.session.nodeBB?.cookies,
+                    hasCSRF: !!req.session.nodeBB?.csrfToken
                 });
 
                 return done(null, user);
