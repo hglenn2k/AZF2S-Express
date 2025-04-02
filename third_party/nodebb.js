@@ -1,9 +1,5 @@
 const axios = require('axios');
 
-// Simple CSRF token cache
-let cachedCsrfToken = null;
-let tokenLastRefreshed = null;
-
 class NodeBBError extends Error {
     constructor(message, statusCode = 500, details = null) {
         super(message);
@@ -24,28 +20,16 @@ const nodeBBAxios = axios.create({
 
 // Function to get CSRF token - kept separate to avoid circular dependency
 async function getCsrfToken() {
-    // Use cached token if available and less than 1 hour old
-    if (cachedCsrfToken && tokenLastRefreshed &&
-        (Date.now() - tokenLastRefreshed < 3600000)) {
-        console.log("Using cached CSRF token:", cachedCsrfToken);
-        return cachedCsrfToken;
-    }
-
-    // Fetch new token - using regular axios to avoid interceptor loop
     console.log("Fetching new CSRF token");
     try {
         const response = await axios.get(`${getNodeBBServiceUrl()}/api/config`);
         if (response.data?.csrf_token) {
-            cachedCsrfToken = response.data.csrf_token;
-            tokenLastRefreshed = Date.now();
-            console.log("CSRF token refreshed to:", cachedCsrfToken);
-            return cachedCsrfToken;
+            console.log("CSRF token received:", response.data.csrf_token);
+            return response.data.csrf_token;
         }
-        throw new Error("No CSRF token in response");
+        console.error("Failed to fetch CSRF token: No CSRF token in response");
     } catch (error) {
         console.error("Failed to fetch CSRF token:", error.message);
-        // Return cached token as fallback if available
-        if (cachedCsrfToken) return cachedCsrfToken;
         throw error;
     }
 }
@@ -404,16 +388,6 @@ const nodeBB = {
         return router;
     }
 };
-
-// Initialize token on module load
-(async function() {
-    try {
-        await getCsrfToken();
-        console.log("Initial CSRF token cached successfully");
-    } catch (error) {
-        console.error("Failed to initialize CSRF token:", error.message);
-    }
-})();
 
 module.exports = {
     nodeBB,
