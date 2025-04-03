@@ -430,49 +430,50 @@ router.post("/login", loginLimiter, asyncHandler(async (req, res, next) => {
         });
     }
 
-    return new Promise((resolve, reject) => {
-        passport.authenticate('local', (err, user, info) => {
-            if (err) {
-                console.error("Authentication error:", err);
-                return reject(new ApiError("Authentication error", 500));
-            }
+    try {
+        // Directly authenticate with NodeBB
+        const { username, password } = req.body;
+        const nodeBBSession = await nodeBB.initializeNodeBBSession(username, password);
 
-            if (!user) {
-                return res.status(401).json({
-                    success: false,
-                    message: info?.message || "Invalid username or password"
-                });
-            }
+        if (!nodeBBSession.success) {
+            return res.status(401).json({
+                success: false,
+                message: "Invalid username or password"
+            });
+        }
 
-            // Don't call req.login() which creates a new session
-            // Instead, manually update the session with user data
-            if (req.session) {
-                req.session.passport = { user: user };
-                // Save session data but don't create a new cookie
-                req.session.save((saveErr) => {
-                    if (saveErr) {
-                        console.error("Session save error:", saveErr);
-                        return reject(new ApiError("Login error", 500));
-                    }
+        // Set the NodeBB session cookie in the response
+        if (nodeBBSession.sessionCookie) {
+            res.setHeader('Set-Cookie', nodeBBSession.sessionCookie);
+        }
 
-                    return res.json({
-                        success: true,
-                        user: {
-                            uid: user.uid,
-                            username: user.username,
-                            isAdmin: user.isAdmin,
-                            validEmail: user.validEmail
-                            // don't pass back csrf
-                        }
-                    });
-                });
-            } else {
-                // If no session exists, this is an error case
-                console.error("No session available for user authentication");
-                return reject(new ApiError("Session error", 500));
+        // Format response
+        const userData = nodeBBSession.userData;
+        const user = {
+            uid: userData.uid,
+            username: userData.username,
+            validEmail: userData["email:confirmed"] === 1,
+            isAdmin: userData.groupTitleArray?.includes("administrators") || false
+        };
+
+        // Update session
+        req.session.user = user;
+        req.session.csrfToken = nodeBBSession.csrfToken;
+
+        // Respond with user data to client
+        return res.json({
+            success: true,
+            user: {
+                uid: user.uid,
+                username: user.username,
+                validEmail: user.validEmail,
+                isAdmin: user.isAdmin
             }
-        })(req, res, next);
-    });
+        });
+    } catch (error) {
+        console.error("Authentication error:", error);
+        return next(new ApiError("Authentication error", 500));
+    }
 }));
 
 router.post("/logout", asyncHandler(async (req, res) => {

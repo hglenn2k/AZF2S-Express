@@ -95,8 +95,10 @@ const nodeBB = (() => {
                     if (req.headers.cookie) {
                         headers['Cookie'] = req.headers.cookie;
                     }
-                    if (req.user?.csrfToken) {
-                        headers['X-CSRF-Token'] = req.user.csrfToken;
+
+                    // Get CSRF token from session
+                    if (req.session && req.session.csrfToken) {
+                        headers['X-CSRF-Token'] = req.session.csrfToken;
                     }
 
                     // Make request
@@ -128,8 +130,7 @@ const nodeBB = (() => {
             });
 
             return router;
-        }
-    };
+        }    };
 })();
 
 module.exports = { nodeBB };
