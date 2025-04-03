@@ -121,13 +121,13 @@ async function startServer() {
         session({
           store: sessionStore,
           secret: process.env.EXPRESS_SESSION_SECRET,
-          key: "express.sid", // This should match what the client is sending
+          key: "express.sid", // Match NodeBB's cookie name
           resave: false,
-          saveUninitialized: false,
+          saveUninitialized: true, // Allow initial sessions for NodeBB's flow
           cookie: {
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            path: '/', // Make sure cookie is sent for ALL paths
+            path: '/',
             maxAge: 1000 * 60 * 60 * 24, // 24 hours
             httpOnly: true
           }

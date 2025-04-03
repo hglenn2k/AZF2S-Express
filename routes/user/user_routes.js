@@ -420,45 +420,49 @@ router.post("/new-user-email", asyncHandler(async (req, res) => {
     });
 }));
 
-router.post("/login", loginLimiter, asyncHandler((req, res, next) => {
+router.post("/login", loginLimiter, asyncHandler(async (req, res, next) => {
     // Validate the request body
     const { isValid, errors } = validation.validateLogin(req.body);
-
     if (!isValid) {
-        throw new ApiError("Validation failed", 400, errors);
+        return res.status(400).json({
+            success: false,
+            errors: errors
+        });
     }
 
-    // Use Passport's authenticate method
-    passport.authenticate('local', (err, user, info) => {
-        if (err) {
-            console.error("Authentication error:", err);
-            return next(new ApiError("Authentication error", 500));
-        }
-
-        if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: info?.message || "Invalid username or password"
-            });
-        }
-
-        req.login(user, (loginErr) => {
-            if (loginErr) {
-                console.error("Session error:", loginErr);
-                return next(new ApiError("Login error", 500));
+    return new Promise((resolve, reject) => {
+        passport.authenticate('local', (err, user, info) => {
+            if (err) {
+                console.error("Authentication error:", err);
+                return reject(new ApiError("Authentication error", 500));
             }
 
-            // Return only necessary user data to client
-            return res.json({
-                success: true,
-                user: {
-                    uid: user.uid,
-                    username: user.username,
-                    isAdmin: user.isAdmin
+            if (!user) {
+                return res.status(401).json({
+                    success: false,
+                    message: info?.message || "Invalid username or password"
+                });
+            }
+
+            req.login(user, (loginErr) => {
+                if (loginErr) {
+                    console.error("Session error:", loginErr);
+                    return reject(new ApiError("Login error", 500));
                 }
+
+                // Return user data and authentication status
+                return res.json({
+                    success: true,
+                    user: {
+                        uid: user.uid,
+                        username: user.username,
+                        isAdmin: user.isAdmin,
+                        validEmail: user.validEmail
+                    }
+                });
             });
-        });
-    })(req, res, next);
+        })(req, res, next);
+    });
 }));
 
 router.post("/logout", asyncHandler(async (req, res) => {

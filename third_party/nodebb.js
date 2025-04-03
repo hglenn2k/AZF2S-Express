@@ -1,186 +1,135 @@
 const axios = require('axios');
+const express = require('express');
 
-class NodeBBError extends Error {
-    constructor(message, statusCode = 500, details = null) {
-        super(message);
-        this.name = 'NodeBBError';
-        this.statusCode = statusCode;
-        this.details = details;
-    }
-}
-
-// Cache the NodeBB service URL
-let nodeBBServiceUrl;
-function getNodeBBServiceUrl() {
-    if (!nodeBBServiceUrl) {
-        nodeBBServiceUrl = process.env.NODEBB_SERVICE_URL || `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}`;
-    }
-    return nodeBBServiceUrl;
-}
-
-// Create a custom Axios instance for NodeBB API requests
-const nodeBBAxios = axios.create({
-    baseURL: getNodeBBServiceUrl()
-});
-
-// Add Bearer token and _uid to all requests
-nodeBBAxios.interceptors.request.use(async (config) => {
-    // Always add Bearer token
-    config.headers = {
-        ...config.headers,
-        'Authorization': `Bearer ${process.env.NODEBB_BEARER}`
+// Create the NodeBB client with private implementation details
+const nodeBB = (() => {
+    // Private URL getter
+    let nodeBBServiceUrl;
+    const getUrl = () => {
+        if (!nodeBBServiceUrl) {
+            nodeBBServiceUrl = process.env.NODEBB_SERVICE_URL ||
+                `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}`;
+        }
+        return nodeBBServiceUrl;
     };
 
-    // Handle _uid parameter based on request method
-    if (config.method && config.method.toLowerCase() === 'get') {
-        // For GET requests, add _uid as query parameter
-        config.params = config.params || {};
-        config.params._uid = 1;
-    } else {
-        // For non-GET requests, add _uid to the body
-        if (!config.data) {
-            config.data = { _uid: 1 };
-        } else if (typeof config.data === 'object' && !Array.isArray(config.data)) {
-            if (!config.data._uid) {
-                config.data._uid = 1;
+    // Create axios instance with logging
+    const api = axios.create({ baseURL: getUrl(), withCredentials: true });
+    api.interceptors.response.use(
+        response => {
+            console.log(`NodeBB API: ${response.config.method.toUpperCase()} ${response.config.url} - ${response.status}`);
+            return response;
+        },
+        error => {
+            if (error.response) {
+                console.error("NodeBB API error:", error.response.status, error.response.data);
             }
+            return Promise.reject(error);
         }
-    }
+    );
 
-    return config;
-});
+    // Return the public interface
+    return {
+        async initializeNodeBBSession(username, password) {
+            try {
+                // 1. Get initial session and CSRF token
+                const configResponse = await axios.get(`${getUrl()}/api/config`);
 
-// Add response interceptor to log responses
-nodeBBAxios.interceptors.response.use(
-    (response) => {
-        console.log(`NodeBB API response success: ${response.config.method.toUpperCase()} ${response.config.url} - Status: ${response.status}`);
-        return response;
-    },
-    async (error) => {
-        if (error.response) {
-            console.error("NodeBB API error:", error.response.status, error.response.data);
-        }
-        return Promise.reject(error);
-    }
-);
+                const csrfToken = configResponse.data?.csrf_token;
+                if (!csrfToken) {
+                    throw new Error('Could not retrieve CSRF token');
+                }
 
-const nodeBB = {
-    async makeRequest(method, url, data = null) {
-        const config = {
-            method,
-            url
-        };
+                // Extract session cookie
+                const cookies = configResponse.headers['set-cookie'];
+                if (!cookies?.length) {
+                    throw new Error('No session cookie received');
+                }
 
-        if (data && method.toLowerCase() !== 'get') {
-            config.data = data;
-        }
+                const sessionCookie = cookies.find(cookie => cookie.includes('express.sid'));
+                if (!sessionCookie) {
+                    throw new Error('Session cookie not found');
+                }
 
-        return this.api(config);
-    },
+                // 2. Login with session cookie and CSRF token
+                const loginResponse = await axios.post(
+                    `${getUrl()}/api/v3/utilities/login`,
+                    { username, password },
+                    {
+                        headers: {
+                            'Cookie': sessionCookie,
+                            'X-CSRF-Token': csrfToken
+                        }
+                    }
+                );
 
-    api: nodeBBAxios,
+                if (!(loginResponse.data?.status?.code === "ok")) {
+                    throw new Error('NodeBB authentication failed');
+                }
 
-    async initializeNodeBBSession(username, password) {
-        try {
-            console.log("Authenticating user with NodeBB");
+                // Get cookies after authentication (use new ones if available)
+                const authCookies = loginResponse.headers['set-cookie'] || [sessionCookie];
 
-            // Login to NodeBB with Bearer token
-            const loginResponse = await this.api({
-                method: 'post',
-                url: '/api/v3/utilities/login',
-                data: { username, password }
-            });
-
-            if (!(loginResponse.data?.status?.code === "ok")) {
-                throw new NodeBBError('NodeBB authentication failed', 401);
+                return {
+                    success: true,
+                    userData: loginResponse.data.response,
+                    csrfToken: csrfToken,
+                    sessionCookie: authCookies.join('; ')
+                };
+            } catch (error) {
+                console.error('NodeBB authentication failed:', error);
+                throw error;
             }
+        },
 
-            // Get user data using Bearer token
-            const getUserResponse = await this.api({
-                method: 'get',
-                url: `/api/user/username/${username}`
-            });
+        createProxyRouter() {
+            const router = express.Router({ mergeParams: true });
 
-            if (!getUserResponse.data?.uid) {
-                throw new NodeBBError('Invalid user data response', 500);
-            }
+            router.all('*', async (req, res, next) => {
+                try {
+                    const nodeBBPath = req.path.replace(/^\/+/, '');
+                    console.log(`Proxying to NodeBB: ${req.method} ${nodeBBPath}`);
 
-            return {
-                success: true,
-                userData: getUserResponse.data
-            };
-        } catch (error) {
-            console.error('NodeBB authentication failed:', error);
-            throw error;
-        }
-    },
+                    // Setup headers
+                    const headers = {};
+                    if (req.headers.cookie) {
+                        headers['Cookie'] = req.headers.cookie;
+                    }
+                    if (req.user?.csrfToken) {
+                        headers['X-CSRF-Token'] = req.user.csrfToken;
+                    }
 
-    async verifyNodeBBHealth() {
-        try {
-            const response = await axios.get(`${getNodeBBServiceUrl()}/api/config`, {
-                timeout: 5000,
-                headers: {
-                    'Authorization': `Bearer ${process.env.NODEBB_BEARER}`
+                    // Make request
+                    const response = await axios({
+                        method: req.method,
+                        url: `${getUrl()}/${nodeBBPath}`,
+                        headers,
+                        data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
+                        params: !['POST', 'PUT', 'PATCH'].includes(req.method) ? req.query : undefined,
+                        withCredentials: true
+                    });
+
+                    // Forward cookies and response
+                    if (response.headers['set-cookie']) {
+                        res.set('Set-Cookie', response.headers['set-cookie']);
+                    }
+                    res.status(response.status).json(response.data);
+                } catch (error) {
+                    console.error('NodeBB proxy error:', error);
+
+                    if (error.response) {
+                        if ([401, 403].includes(error.response.status)) {
+                            console.log('Session likely expired - user needs to re-login');
+                        }
+                        return res.status(error.response.status).json(error.response.data);
+                    }
+                    next(error);
                 }
             });
 
-            return {
-                status: 'ok',
-                details: {
-                    version: response.data?.version || 'unknown',
-                    uptime: response.data?.uptime || 'unknown'
-                },
-                timestamp: new Date().toISOString()
-            };
-        } catch (error) {
-            return {
-                status: 'error',
-                error: error.message,
-                timestamp: new Date().toISOString()
-            };
+            return router;
         }
-    }
-};
+    };
+})();
 
-const createProxyRouter = () => {
-    const express = require('express');
-    const router = express.Router();
-
-    // Handle all HTTP methods
-    router.all('*', async (req, res, next) => {
-        try {
-            // Get the path after the proxy route
-            const nodeBBPath = req.path.replace(/^\/+/, '');
-            console.log(`Proxying to NodeBB: ${req.method} ${nodeBBPath}`);
-
-            // Determine if we need to send body data
-            const hasBody = ['POST', 'PUT', 'PATCH'].includes(req.method);
-
-            // Forward the request to NodeBB using our makeRequest helper
-            const response = await nodeBB.makeRequest(
-                req.method,
-                nodeBBPath,
-                hasBody ? req.body : null
-            );
-
-            // Send the response back to the client
-            res.status(response.status).json(response.data);
-        } catch (error) {
-            console.error('NodeBB proxy error:', error);
-
-            // Handle API errors
-            if (error.response) {
-                return res.status(error.response.status).json(error.response.data);
-            }
-
-            // Handle other errors
-            next(error);
-        }
-    });
-
-    return router;
-};
-
-nodeBB.createProxyRouter = createProxyRouter;
-
-module.exports = { nodeBB, getNodeBBServiceUrl };
+module.exports = { nodeBB };
