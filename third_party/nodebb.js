@@ -31,19 +31,20 @@ nodeBBAxios.interceptors.request.use(async (config) => {
         'Authorization': `Bearer ${process.env.NODEBB_BEARER}`
     };
 
-    // Add _uid: 1 to all non-GET requests when using admin Bearer token
-    if (config.method && config.method.toLowerCase() !== 'get') {
-        // Create data object if it doesn't exist
+    // Handle _uid parameter based on request method
+    if (config.method && config.method.toLowerCase() === 'get') {
+        // For GET requests, add _uid as query parameter
+        config.params = config.params || {};
+        config.params._uid = 1;
+    } else {
+        // For non-GET requests, add _uid to the body
         if (!config.data) {
             config.data = { _uid: 1 };
-        }
-        // If data is already an object, add _uid to it
-        else if (typeof config.data === 'object' && !Array.isArray(config.data)) {
+        } else if (typeof config.data === 'object' && !Array.isArray(config.data)) {
             if (!config.data._uid) {
                 config.data._uid = 1;
             }
         }
-        // If data is not an object (string, FormData, etc.), don't modify it
     }
 
     return config;
