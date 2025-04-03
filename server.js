@@ -123,7 +123,7 @@ async function startServer() {
           secret: process.env.EXPRESS_SESSION_SECRET,
           key: "express.sid", // Match NodeBB's cookie name
           resave: false,
-          saveUninitialized: true, // Allow initial sessions for NodeBB's flow
+          saveUninitialized: false, // Prevent Express from creating empty sessions
           cookie: {
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
