@@ -421,7 +421,7 @@ router.post("/new-user-email", asyncHandler(async (req, res) => {
 }));
 
 router.post("/login", loginLimiter, asyncHandler(async (req, res, next) => {
-    // Validate the request body
+    // Validate request
     const { isValid, errors } = validation.validateLogin(req.body);
     if (!isValid) {
         return res.status(400).json({
@@ -444,22 +444,15 @@ router.post("/login", loginLimiter, asyncHandler(async (req, res, next) => {
                 });
             }
 
-            req.login(user, (loginErr) => {
-                if (loginErr) {
-                    console.error("Session error:", loginErr);
-                    return reject(new ApiError("Login error", 500));
+            return res.json({
+                success: true,
+                user: {
+                    uid: user.uid,
+                    username: user.username,
+                    isAdmin: user.isAdmin,
+                    validEmail: user.validEmail
+                    // don't pass back csrf
                 }
-
-                // Return user data and authentication status
-                return res.json({
-                    success: true,
-                    user: {
-                        uid: user.uid,
-                        username: user.username,
-                        isAdmin: user.isAdmin,
-                        validEmail: user.validEmail
-                    }
-                });
             });
         })(req, res, next);
     });
