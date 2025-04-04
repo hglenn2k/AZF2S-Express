@@ -19,18 +19,8 @@ const { accountCheckLimiter, signupLimiter, loginLimiter } = configureLimiters({
 });
 
 router.get("/", validateSession, asyncHandler(async (req, res) => {
-    if (!req.isAuthenticated() && !req.uid) {
-        throw new ApiError("Authentication required", 401);
-    }
-
-    const userId = req.uid || req.user?.uid;
-
-    if (!userId) {
-        throw new ApiError("User ID required", 400);
-    }
-
     try {
-        const response = await nodeBB.api.get(`/api/user/uid/${userId}`);
+        const response = await nodeBB.api.get(`/api/user/username/${req.session.user.username}`);
 
         if (!response.data) {
             return res.status(404).json({ error: "User not found" });
