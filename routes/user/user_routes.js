@@ -8,7 +8,14 @@ const router = express.Router();
 
 router.get("/", validateSession, (async (req, res) => {
     try {
-        const response = await nodeBB.api.get(`/api/user/username/${req.session.user.username}`);
+        const response = await nodeBB.api.get(`/api/user/username/${req.session.user.username}`,
+            {
+                headers: {
+                    'Cookie': req.session.cookie,
+                    'x-csrf-token': req.csrfToken
+                }
+            }
+        );
 
         if (!response.data) {
             return res.status(404).json({ error: "User not found" });
