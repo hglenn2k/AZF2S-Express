@@ -1,66 +1,12 @@
-// Process event handlers for proper error handling
-process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION! Shutting down...', err.name, err.message);
-  console.error(err.stack);
-  process.exit(1);
-});
-
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION! Shutting down...', err.name, err.message);
-  console.error(err.stack);
-  process.exit(1);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  const { disconnect } = require('./third_party/mongodb');
-
-  disconnect()
-      .then(() => {
-        console.log('MongoDB disconnected successfully');
-        process.exit(0);
-      })
-      .catch((err) => {
-        console.error('Error during graceful shutdown:', err);
-        process.exit(1);
-      });
-});
+require("axios");
 
 const express = require("express");
-const session = require("express-session");
-const MongoStore = require("connect-mongo");
-const { google } = require("googleapis");
-const cors = require("cors");
-require("axios");
-require("dotenv").config();
-const nodemailer = require("nodemailer");
-require("node-fetch");
-require("dayjs");
-const {notFoundMiddleware, errorMiddleware} = require("./middleware/errorHandling");
-const { sanitizeRequestBody } = require("./middleware/sanitizeRequests");
-const setupLegacyRoutes = require("./routes/legacy_routes");
 const app = express();
 const PORT = process.env.PORT || 3001;
-const mongoClient = require('./third_party/mongodb');
-const { nodeBB } = require('./third_party/nodebb');
-
-// Unit test middleware
-console.log('Validating critical modules before startup...');
-try {
-  require('./tests/testMiddlewareOnStartup');
-  console.log('Critical modules validated successfully');
-} catch (error) {
-  console.error('FATAL ERROR: Module validation failed', error);
-  process.exit(1);
-}
-
-// Setup basic middleware
 app.set('trust proxy', 1);
 app.use(express.json());
-app.use(sanitizeRequestBody);
 
-// Improved CORS configuration - configure this before session middleware
+const cors = require("cors");
 app.use(
     cors({
       origin: process.env.PROTOCOL + process.env.DOMAIN || 'http://localhost',
@@ -69,10 +15,16 @@ app.use(
     })
 );
 
-// Google Sheets API setup
+const session = require("express-session");
+const MongoStore = require("connect-mongo");
+
+const mongoClient = require('./third_party/mongodb');
+const { nodeBB } = require('./third_party/nodebb');
+
+// Google
+const { google } = require("googleapis");
 const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID;
 const RANGE = "Address Delimiter";
-
 const credentials = {
   type: process.env.GOOGLE_SERVICE_ACCOUNT_TYPE,
   project_id: process.env.GOOGLE_SERVICE_ACCOUNT_PROJECT_ID,
@@ -85,7 +37,6 @@ const credentials = {
   auth_provider_x509_cert_url: process.env.GOOGLE_SERVICE_ACCOUNT_AUTH_PROVIDER_CERT_URL,
   client_x509_cert_url: process.env.GOOGLE_SERVICE_ACCOUNT_CLIENT_CERT_URL
 };
-
 const jwtClient = new google.auth.JWT(
     credentials.client_email,
     null,
@@ -93,6 +44,12 @@ const jwtClient = new google.auth.JWT(
     ["https://www.googleapis.com/auth/spreadsheets"],
     null
 );
+
+const nodemailer = require("nodemailer");
+
+require("dotenv").config();
+require("dayjs");
+const setupLegacyRoutes = require("./routes/legacy_routes");
 
 async function startServer() {
   try {
@@ -119,9 +76,10 @@ async function startServer() {
         session({
           store: sessionStore,
           secret: process.env.EXPRESS_SESSION_SECRET,
-          key: "express.sid", // Match NodeBB's cookie name
+          key: 'server.sid', // Match NodeBB's cookie name
           resave: false,
           saveUninitialized: false, // Prevent Express from creating empty session
+          unset: 'destroy'
         })
     );
 
@@ -319,10 +277,6 @@ async function startServer() {
         timestamp: new Date().toISOString()
       };
     }
-
-    // Error middlewares should be last
-    app.use(notFoundMiddleware);
-    app.use(errorMiddleware);
 
     // Start the server
     app.listen(PORT, () => {

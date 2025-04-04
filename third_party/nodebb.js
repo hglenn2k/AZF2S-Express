@@ -1,9 +1,7 @@
 const axios = require('axios');
 const express = require('express');
 
-// Create the NodeBB client with private implementation details
 const nodeBB = (() => {
-    // Private URL getter
     let nodeBBServiceUrl;
     const getUrl = () => {
         if (!nodeBBServiceUrl) {
@@ -13,8 +11,7 @@ const nodeBB = (() => {
         return nodeBBServiceUrl;
     };
 
-    // Create axios instance with logging
-    const api = axios.create({ baseURL: getUrl(), withCredentials: true });
+    const api = axios.create({ baseURL: getUrl()});
     api.interceptors.response.use(
         response => {
             console.log(`NodeBB API: ${response.config.method.toUpperCase()} ${response.config.url} - ${response.status}`);
