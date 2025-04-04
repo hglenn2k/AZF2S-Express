@@ -12,7 +12,7 @@ router.get("/", validateSession, (async (req, res) => {
             {
                 headers: {
                     'Cookie': req.session.cookie,
-                    'x-csrf-token': req.csrfToken
+                    'x-csrf-token': req.session.csrfToken,
                 }
             }
         );
