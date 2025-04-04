@@ -28,8 +28,6 @@ process.on('SIGTERM', () => {
 });
 
 const express = require("express");
-const passport = require("passport");
-const configurePassport = require('./middleware/passport');
 const session = require("express-session");
 const MongoStore = require("connect-mongo");
 const { google } = require("googleapis");
@@ -126,13 +124,6 @@ async function startServer() {
           saveUninitialized: false, // Prevent Express from creating empty session
         })
     );
-
-    // Initialize Passport (after session middleware)
-    app.use(passport.initialize());
-    app.use(passport.session());
-
-    // Configure Passport strategies
-    configurePassport();
 
     // Setup email transporter
     app.locals.transporter = nodemailer.createTransport({
@@ -282,7 +273,6 @@ async function startServer() {
           user: req.user ? {
             uid: req.user.uid,
             username: req.user.username,
-            isAdmin: req.user.isAdmin
           } : null,
           session: {
             id: req.sessionID
@@ -323,7 +313,6 @@ async function startServer() {
             } : null
           },
           authentication: {
-            hasPassport: req.session && !!req.session.passport,
             isAuthenticated: req.isAuthenticated && req.isAuthenticated() || false
           }
         },

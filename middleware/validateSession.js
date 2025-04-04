@@ -1,61 +1,92 @@
-const { ApiError } = require('../middleware/errorHandling');
+const { nodeBB } = require('../third_party/nodebb');
 
 /**
- * Middleware to validate if a user is authenticated
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
+ * Session validation middleware
+ * Ensures user session and CSRF token are present
  */
-const validateSession = (req, res, next) => {
-    // Check if user is authenticated using Passport's isAuthenticated method
-    if (!req.isAuthenticated() || !req.user) {
-        console.log('Session validation failed: User not authenticated');
-        return next(new ApiError('Authentication required', 401));
+const validateSession = async (req, res, next) => {
+    // Check for user session
+    if (!req.session.user) {
+        return res.status(401).json({
+            success: false,
+            message: "No session found."
+        });
     }
 
-    // Verify that user ID exists
-    if (!req.user.uid) {
-        console.log('Session validation failed: Missing user ID in session');
-        return next(new ApiError('Invalid session', 401));
+    // Check for CSRF token
+    if (!req.session.csrfToken) {
+        return res.status(401).json({
+            success: false,
+            message: "Could not authenticate session."
+        });
     }
 
-    // Add user ID to the request for convenience in route handlers
-    req.uid = req.user.uid;
-
-    // Debug log for successful authentication
-    console.log(`Session validated for user: ${req.user.username} (${req.user.uid})`);
-
-    // Continue to the next middleware or route handler
     next();
 };
 
 /**
- * Middleware to validate if a user is authenticated and has admin privileges
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
+ * Admin session validation middleware
+ * Ensures user is authenticated and has admin privileges
  */
-const validateAdminSession = (req, res, next) => {
-    // First check if the user is authenticated
-    if (!req.isAuthenticated() || !req.user) {
-        console.log('Admin session validation failed: User not authenticated');
-        return next(new ApiError('Authentication required', 401));
+const validateAdminSession = async (req, res, next) => {
+    // First validate basic session requirements
+    if (!req.session.user) {
+        return res.status(401).json({
+            success: false,
+            message: "No session found."
+        });
     }
 
-    // Then check if user has admin role
-    if (!req.user.isAdmin) {
-        console.log(`Admin access denied for user: ${req.user.username} (${req.user.uid})`);
-        return next(new ApiError('Admin privileges required', 403));
+    if (!req.session.csrfToken) {
+        return res.status(401).json({
+            success: false,
+            message: "Could not authenticate session."
+        });
     }
 
-    // Add user ID to the request for convenience
-    req.uid = req.user.uid;
+    try {
+        const response = await nodeBB.api.get('/api/admin/manage/admins-mods', {
+            headers: {
+                Cookie: req.headers.cookie
+            }
+        });
 
-    // Debug log for successful admin authentication
-    console.log(`Admin session validated for user: ${req.user.username} (${req.user.uid})`);
+        const adminData = response.data;
 
-    // Continue to the next middleware or route handler
-    next();
+        // Check if user is an admin
+        const isAdmin = adminData.admins.members.some(
+            (admin) => admin.username === req.session.user.username
+        );
+
+        if (isAdmin) {
+            next();
+        } else {
+            res.status(403).json({
+                success: false,
+                error: "Could not certify administrator."
+            });
+        }
+    } catch (error) {
+        console.error('Admin session validation error:', error.message);
+
+        if (error.response) {
+            return res.status(error.response.status).json({
+                success: false,
+                error: "Error validating admin session.",
+                details: error.response.data
+            });
+        } else if (error.request) {
+            return res.status(504).json({
+                success: false,
+                error: "Server timeout while validating admin session."
+            });
+        } else {
+            return res.status(500).json({
+                success: false,
+                error: "Internal error while validating admin session.",
+            });
+        }
+    }
 };
 
 module.exports = {

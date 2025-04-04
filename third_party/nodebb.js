@@ -30,10 +30,11 @@ const nodeBB = (() => {
 
     // Return the public interface
     return {
+        api,
         async initializeNodeBBSession(username, password) {
             try {
                 // 1. Get initial session and CSRF token
-                const configResponse = await axios.get(`${getUrl()}/api/config`);
+                const configResponse = await api.get(`${getUrl()}/api/config`);
 
                 const csrfToken = configResponse.data?.csrf_token;
                 if (!csrfToken) {
@@ -52,7 +53,7 @@ const nodeBB = (() => {
                 }
 
                 // 2. Login with session cookie and CSRF token
-                const loginResponse = await axios.post(
+                const loginResponse = await api.post(
                     `${getUrl()}/api/v3/utilities/login`,
                     { username, password },
                     {
@@ -102,7 +103,7 @@ const nodeBB = (() => {
                     }
 
                     // Make request
-                    const response = await axios({
+                    const response = await api({
                         method: req.method,
                         url: `${getUrl()}/${nodeBBPath}`,
                         headers,

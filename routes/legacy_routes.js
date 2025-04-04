@@ -91,7 +91,7 @@ function setupLegacyRoutes(app, { jwtClient, spreadsheetId, range, mongoClient }
     });
 
     app.get("/isAdmin", validateAdminSession, (req, res) => {
-        res.status(200).json({ success: true, message: "User is an admin" });
+        res.status(200);
     });
 
     app.put("/submit-form", validateSession, async (req, res) => {

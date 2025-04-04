@@ -1,6 +1,5 @@
 // user_routes.js
 const express = require('express');
-const passport = require('passport');
 const { validateSession }  = require('../../middleware/validateSession');
 const router = express.Router();
 const mongodb = require('../../third_party/mongodb');
@@ -31,23 +30,10 @@ router.get("/", validateSession, asyncHandler(async (req, res) => {
     }
 
     try {
-        const response = await nodeBB.makeRequest('get', `/api/user/uid/${userId}`);
+        const response = await nodeBB.api.get(`/api/user/uid/${userId}`);
 
         if (!response.data) {
             return res.status(404).json({ error: "User not found" });
-        }
-
-        // Check if admin status needs to be updated
-        const isAdmin = response.data.groupTitleArray?.includes("administrators") || false;
-
-        if (req.user && req.user.isAdmin !== isAdmin) {
-            // Only update what's needed
-            req.user.isAdmin = isAdmin;
-            req.login(req.user, (err) => {
-                if (err) {
-                    console.error("Error updating session:", err);
-                }
-            });
         }
 
         // Return all fields from NodeBB's response
@@ -453,7 +439,6 @@ router.post("/login", loginLimiter, asyncHandler(async (req, res, next) => {
             uid: userData.uid,
             username: userData.username,
             validEmail: userData["email:confirmed"] === 1,
-            isAdmin: userData.groupTitleArray?.includes("administrators") || false
         };
 
         // Update session
@@ -467,7 +452,6 @@ router.post("/login", loginLimiter, asyncHandler(async (req, res, next) => {
                 uid: user.uid,
                 username: user.username,
                 validEmail: user.validEmail,
-                isAdmin: user.isAdmin
             }
         });
     } catch (error) {
@@ -477,35 +461,7 @@ router.post("/login", loginLimiter, asyncHandler(async (req, res, next) => {
 }));
 
 router.post("/logout", asyncHandler(async (req, res) => {
-    try {
-        // First, check if user is authenticated
-        if (req.isAuthenticated()) {
-            // Use Passport's logout method to clear the session
-            req.logout(function(err) {
-                if (err) {
-                    console.error("Passport logout error:", err);
-                    throw new ApiError("Logout failed", 500);
-                }
-            });
-        }
-
-        // Destroy the session regardless of authentication state
-        if (req.session) {
-            req.session.destroy();
-        }
-
-        // Clear authentication cookies from client
-        res.clearCookie('express.sid');
-        res.clearCookie('connect.sid');
-
-        res.status(200).json({
-            success: true,
-            message: "Logged out successfully from the application"
-        });
-    } catch (error) {
-        console.error("Logout error:", error);
-        throw new ApiError("Logout failed", 500);
-    }
+    // todo
 }))
 
 module.exports = router;
