@@ -29,12 +29,12 @@ router.post('/is-available', (async (req, res) => {
         else { console.log(`Email already exists: ${existingEmail}`); }
 
         if (!usernameAvailable || !emailAvailable) {
-            return res.status(400);
+            return res.status(400).json({});
         }
 
-        return res.status(200);
+        return res.status(200).json({});
     } catch (error) {
-        return res.status(500);
+        return res.status(500).json({});
     }
 }));
 
