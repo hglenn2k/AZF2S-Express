@@ -60,7 +60,7 @@ async function startServer() {
     // Configure session store with the connected client
     const sessionStore = MongoStore.create({
       client: mongoClient.client,
-      dbName: process.env.MONGO_ENV || 'DEV',
+      dbName: process.env.MONGO_NODEBB_DATABASE || 'nodebb',
       collectionName: "sessions",
       stringify: false,
       autoRemove: 'native', // Use MongoDB's TTL index

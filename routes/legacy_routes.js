@@ -6,7 +6,7 @@ const dayjs = require("dayjs");
 const {ObjectId} = require("mongodb");
 const {getNodeBBServiceUrl} = require("../third_party/nodebb");
 
-const mongoEnv = process.env.MONGO_ENV || 'DEV';
+const mongoEnv = process.env.MONGO_NODEBB_DATABASE || 'nodebb';
 
 /**
  * Setup Legacy Routes

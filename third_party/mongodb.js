@@ -35,7 +35,6 @@ if (process.env.MONGO_URI) {
 
 console.log(`MongoDB URI: ${uri.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@')}`);
 
-// Create MongoDB client
 const client = new MongoClient(uri, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
@@ -49,7 +48,7 @@ async function connect() {
     if (!connected) {
         await client.connect();
         connected = true;
-        db = client.db(process.env.MONGO_ENV || 'DEV');
+        db = client.db(process.env.MONGO_NODEBB_DATABASE || 'nodebb');
         console.log(`Connected to MongoDB database '${db.databaseName}'`);
     }
     return client;
