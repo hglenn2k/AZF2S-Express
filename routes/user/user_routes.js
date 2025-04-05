@@ -22,11 +22,11 @@ router.post('/is-available', (async (req, res) => {
 
         const existingUsername = await collection.findOne({ username: username });
         if (existingUsername === null || existingUsername === undefined) { usernameAvailable = true; }
-        else { console.log(`Username already exists: ${existingUsername}`); }
+        console.log(`Existing username: ${existingUsername}`);
 
         const existingEmail = await collection.findOne({ email: email });
         if (existingEmail === null || existingEmail === undefined) { emailAvailable = true; }
-        else { console.log(`Email already exists: ${existingEmail}`); }
+        console.log(`Existing email: ${existingEmail}`);
 
         if (!usernameAvailable || !emailAvailable) {
             return res.status(400).json({});
