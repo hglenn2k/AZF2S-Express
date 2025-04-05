@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/is-available', (async (req, res) => {
     try {
-        const { isValid, errors } = validation.validateIsAvailable(req.query);
+        const { isValid, errors } = validation.validateIsAvailable(req.body);
         if (!isValid) {
             return res.status(400).json({
                 success: false,
@@ -15,7 +15,7 @@ router.get('/is-available', (async (req, res) => {
             });
         }
 
-        const {username, email} = req.query;
+        const {username, email} = req.body;
         let {usernameAvailable, emailAvailable} = false;
 
         const collection = await mongodb.getCollection('objects');
