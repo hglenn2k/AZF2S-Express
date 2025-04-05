@@ -21,11 +21,11 @@ router.get('/is-available', (async (req, res) => {
         const collection = await mongodb.getCollection('objects');
 
         const existingUsername = await collection.findOne({ username: username });
-        if(existingUsername === undefined) { usernameAvailable = true; }
+        if(existingUsername === null || existingUsername === undefined) { usernameAvailable = true; }
         else(console.log(`Username already exists: ${existingUsername}`));
 
         const existingEmail = await collection.findOne({ email: email });
-        if(existingEmail === undefined) { emailAvailable = true; }
+        if(existingEmail === null || existingEmail === undefined) { emailAvailable = true; }
         else(console.log(`Email already exists: ${existingEmail}`));
 
         if (!usernameAvailable || !emailAvailable) {
