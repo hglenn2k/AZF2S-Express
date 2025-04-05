@@ -5,7 +5,7 @@ const { validateSession }  = require('../../middleware/validateSession');
 const validation = require('./user_validation');
 const router = express.Router();
 
-router.get('/is-available', (async (req, res) => {
+router.post('/is-available', (async (req, res) => {
     try {
         const { isValid, errors } = validation.validateIsAvailable(req.body);
         if (!isValid) {
@@ -16,17 +16,17 @@ router.get('/is-available', (async (req, res) => {
         }
 
         const {username, email} = req.body;
-        let {usernameAvailable, emailAvailable} = false;
+        let usernameAvailable = false, emailAvailable = false;
 
         const collection = await mongodb.getCollection('objects');
 
         const existingUsername = await collection.findOne({ username: username });
-        if(existingUsername === null || existingUsername === undefined) { usernameAvailable = true; }
-        else(console.log(`Username already exists: ${existingUsername}`));
+        if (existingUsername === null || existingUsername === undefined) { usernameAvailable = true; }
+        else { console.log(`Username already exists: ${existingUsername}`); }
 
         const existingEmail = await collection.findOne({ email: email });
-        if(existingEmail === null || existingEmail === undefined) { emailAvailable = true; }
-        else(console.log(`Email already exists: ${existingEmail}`));
+        if (existingEmail === null || existingEmail === undefined) { emailAvailable = true; }
+        else { console.log(`Email already exists: ${existingEmail}`); }
 
         if (!usernameAvailable || !emailAvailable) {
             return res.status(400);
