@@ -1,10 +1,40 @@
-// user_routes.js
 const express = require('express');
 const { nodeBB} = require("../../third_party/nodebb");
 const mongodb = require('../../third_party/mongodb');
 const { validateSession }  = require('../../middleware/validateSession');
 const validation = require('./user_validation');
 const router = express.Router();
+
+router.get('/is-available', (async (req, res) => {
+    try {
+        const { isValid, errors } = validation.validateIsAvailable(req.query);
+        if (!isValid) {
+            return res.status(400).json({
+                success: false,
+                errors: errors
+            });
+        }
+
+        const {username, email} = req.query;
+        let {usernameAvailable, emailAvailable} = false;
+
+        const collection = await mongodb.getCollection('objects');
+
+        const existingUsername = await collection.findOne({ username: username });
+        if(existingUsername === undefined) { usernameAvailable = true; }
+
+        const existingEmail = await collection.findOne({ email: email });
+        if(existingEmail === undefined) { emailAvailable = true; }
+
+        if (!usernameAvailable || !emailAvailable) {
+            return res.status(400).json({})
+        }
+
+        return res.status(200);
+    } catch (error) {
+        return res.status(500);
+    }
+}));
 
 router.get("/", validateSession, (async (req, res) => {
     try {

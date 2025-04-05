@@ -79,7 +79,6 @@ async function ping() {
     }
 }
 
-// Export the essentials
 module.exports = {
     client,
     connect,
