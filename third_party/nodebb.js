@@ -5,8 +5,7 @@ const nodeBB = (() => {
     let nodeBBServiceUrl;
     const getUrl = () => {
         if (!nodeBBServiceUrl) {
-            nodeBBServiceUrl = process.env.NODEBB_SERVICE_URL ||
-                `${process.env.PROTOCOL}${process.env.DOMAIN}${process.env.FORUM_PROXY_ROUTE}`;
+            nodeBBServiceUrl = process.env.NODEBB_SERVICE_URL;
         }
         return nodeBBServiceUrl;
     };
