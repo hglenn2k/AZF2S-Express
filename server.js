@@ -67,15 +67,15 @@ async function startServer() {
       ttl: 24 * 60 * 60, // 1 day in seconds
       touchAfter: 10 * 60, // Only update session if 10 minutes passed
       crypto: {
-        secret: process.env.EXPRESS_SESSION_SECRET // Encrypt session data
+        secret: process.env.SESSION_COOKIE_SECRET // Encrypt session data
       }
     });
 
-    // Configure session middleware
+    // Configure session (maybe delete this)
     app.use(
         session({
           store: sessionStore,
-          secret: process.env.EXPRESS_SESSION_SECRET,
+          secret: process.env.SESSION_COOKIE_SECRET,
           key: 'server.sid', // Match NodeBB's cookie name
           resave: false,
           saveUninitialized: false, // Prevent Express from creating empty session
