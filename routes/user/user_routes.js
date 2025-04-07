@@ -18,15 +18,15 @@ router.post('/is-available', (async (req, res) => {
         const {username, email} = req.body;
         let usernameAvailable = false, emailAvailable = false;
 
-        const collection = await mongodb.getCollection(process.env.MONGO_NODEBB_DATABASE);
+        const collection = await mongodb.getCollection(process.env.MONGO_NODEBB_COLLECTION);
 
         const existingUsername = await collection.findOne({ username: username });
         if (existingUsername === null || existingUsername === undefined) { usernameAvailable = true; }
-        console.log(`Existing username: ${existingUsername}`);
+        console.log(`Found username: ${existingUsername}`);
 
         const existingEmail = await collection.findOne({ email: email });
         if (existingEmail === null || existingEmail === undefined) { emailAvailable = true; }
-        console.log(`Existing email: ${existingEmail}`);
+        console.log(`Found email: ${existingEmail}`);
 
         if (!usernameAvailable || !emailAvailable) {
             return res.status(400).json({});
