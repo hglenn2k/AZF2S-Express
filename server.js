@@ -71,7 +71,7 @@ async function startServer() {
       }
     });
 
-    // Configure session (maybe delete this)
+    /* Configure session (maybe delete this)
     app.use(
         session({
           store: sessionStore,
@@ -82,6 +82,7 @@ async function startServer() {
           unset: 'destroy'
         })
     );
+    */
 
     // Setup email transporter
     app.locals.transporter = nodemailer.createTransport({
